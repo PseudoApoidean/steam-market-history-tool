@@ -2,7 +2,8 @@
 
 ## Design principles
 
-- **Core logic is presentation-agnostic.** `parser`, `filters`, and `stats` operate on plain data (a dict in, dataclasses out) with no knowledge of argparse or stdout. `cli.py` is just today's one consumer of that core — a future GUI frontend imports the same package instead of duplicating logic or shelling out to the CLI.
+- **Core logic is presentation-agnostic.** `parser`, `filters`, and `stats` operate on plain data (a dict in, dataclasses out) with no knowledge of argparse or stdout. `cli.py` is just today's one consumer of that core.
+- **The CLI's `--json` output is a stable machine interface, not an afterthought.** A separate GUI project (Steam Market Ledger) shells out to this CLI rather than importing this package directly, so the JSON shape (`{"ok": ..., "totals": ..., "by_game": ...}` / `{"ok": ..., "games": [...]}` / `{"ok": false, "error": ...}`) is treated as a contract: keep it backward compatible, don't casually reshape it.
 - **No parsing dependencies.** Steam doesn't expose your market history as structured JSON — the useful data is a server-rendered HTML fragment embedded in the export. That fragment's row format is simple and stable enough to extract with the standard library (`re`, `html`), so the tool has zero third-party runtime dependencies and needs no virtualenv for casual use.
 - **Currencies are never silently mixed.** Profit is always reported per currency symbol; nothing gets summed across currencies without an explicit (and currently unimplemented) conversion step.
 - **Row order over invented dates.** Steam's history omits the year from every date field, even for entries spanning multiple years. Rather than guessing, each transaction keeps `order_index` (its position in Steam's export, newest first) as the only reliable ordering signal.
@@ -12,7 +13,7 @@
 - Parses the exact JSON shape produced by Steam's `market/myhistory/render` endpoint (a `results_html` field holding an HTML fragment, plus an `assets` map that isn't currently used). If Steam changes that markup, the row regexes in `parser.py` will need updating.
 - No year in per-row dates — see design principles above. Don't rely on `acted_on` / `listed_on` for anything beyond display.
 - Multi-currency histories are reported as separate per-currency totals; no FX conversion.
-- CLI only for now. GUI is a planned frontend on top of the same `steam_market_history` package (see its `__init__.py` docstring for the intended extension point) — not started yet.
+- CLI only, deliberately. The GUI lives in a separate repo (Steam Market Ledger) that adds this repo as a git submodule and drives it as a subprocess via `--json`, rather than importing `steam_market_history` directly.
 
 ## Setup
 
@@ -56,6 +57,30 @@ steam-market-history path/to/history.json --filter "!game:Rust"
 # CS2 crates OR anything from Rust
 steam-market-history path/to/history.json --filter "game:CS2 name:*Case" --filter "game:Rust"
 ```
+
+### Machine-readable output (`--json`)
+
+Add `--json` to any invocation to get structured output instead of text — this is the interface the Steam Market Ledger GUI (and any other script) is expected to use:
+
+```sh
+steam-market-history path/to/history.json --json
+steam-market-history path/to/history.json --filter "game:CS2 name:*Case" --json
+steam-market-history path/to/history.json --list-games --json
+```
+
+Always a single JSON object on stdout:
+
+- Success: `{"ok": true, "totals": {...}, "by_game": {...}}` (or `{"ok": true, "games": [...]}` with `--list-games`). `--by-game` has no effect in JSON mode — `by_game` is always included alongside `totals`.
+- Failure (bad `--filter` query, unreadable/malformed history file): `{"ok": false, "error": "message"}`.
+- No transactions matching the filter is *not* a failure: `{"ok": true, "totals": {}, "by_game": {}}` (exit code is still 1, same as text mode, so shell scripts checking only the exit code keep working — but stdout is always valid JSON regardless of exit code).
+
+Each currency bucket looks like:
+
+```json
+{"sold_total": "10.85", "sold_count": 23, "purchased_total": "0", "purchased_count": 0, "net_profit": "10.85"}
+```
+
+Amounts are decimal strings (not floats), to avoid floating-point rounding on money.
 
 Or without installing the console script:
 
