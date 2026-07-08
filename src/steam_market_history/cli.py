@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 from .filters import FilterQueryError, filter_by_queries, parse_query, unique_game_names
 from .parser import load_history_json, parse_transactions
-from .stats import summarize, summarize_by_game
+from .stats import CurrencyTotals, GameSummary, summarize, summarize_by_game
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -33,40 +34,103 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--by-game",
         action="store_true",
-        help="Show a per-game breakdown in addition to the lifetime total",
+        help="Show a per-game breakdown in addition to the lifetime total (text output only)",
     )
     parser.add_argument(
         "--list-games",
         action="store_true",
         help="List all game names found in the history and exit",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help=(
+            "Output machine-readable JSON instead of human-readable text. Always "
+            "'{\"ok\": true|false, ...}'; on success the payload is either "
+            "{\"games\": [...]} (with --list-games) or {\"totals\": {...}, "
+            "\"by_game\": {...}} (--by-game has no effect in JSON mode, both are "
+            "always included); on failure {\"error\": \"message\"}."
+        ),
+    )
     return parser
+
+
+def _currency_totals_to_json(bucket: CurrencyTotals) -> dict[str, object]:
+    return {
+        "sold_total": str(bucket.sold_total),
+        "sold_count": bucket.sold_count,
+        "purchased_total": str(bucket.purchased_total),
+        "purchased_count": bucket.purchased_count,
+        "net_profit": str(bucket.net_profit),
+    }
+
+
+def _totals_to_json(totals: dict[str, CurrencyTotals]) -> dict[str, object]:
+    return {currency: _currency_totals_to_json(bucket) for currency, bucket in totals.items()}
+
+
+def _by_game_to_json(by_game: dict[str, GameSummary]) -> dict[str, object]:
+    return {
+        game_name: _totals_to_json(summary.totals_by_currency)
+        for game_name, summary in by_game.items()
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
-    payload = load_history_json(args.history_json)
-    transactions = parse_transactions(payload)
+    try:
+        payload = load_history_json(args.history_json)
+        transactions = parse_transactions(payload)
+    except (OSError, ValueError) as exc:
+        if args.json:
+            print(json.dumps({"ok": False, "error": str(exc)}))
+        else:
+            print(f"Error reading history: {exc}", file=sys.stderr)
+        return 1
 
     if args.list_games:
-        for name in unique_game_names(transactions):
-            print(name)
+        games = unique_game_names(transactions)
+        if args.json:
+            print(json.dumps({"ok": True, "games": games}))
+        else:
+            for name in games:
+                print(name)
         return 0
 
     try:
         queries = [parse_query(query_text) for query_text in args.filters or []]
     except FilterQueryError as exc:
-        print(f"Invalid --filter query: {exc}", file=sys.stderr)
+        if args.json:
+            print(json.dumps({"ok": False, "error": str(exc)}))
+        else:
+            print(f"Invalid --filter query: {exc}", file=sys.stderr)
         return 1
 
     transactions = filter_by_queries(transactions, queries)
 
     if not transactions:
-        print("No transactions match the given filters.", file=sys.stderr)
+        if args.json:
+            print(json.dumps({"ok": True, "totals": {}, "by_game": {}}))
+        else:
+            print("No transactions match the given filters.", file=sys.stderr)
         return 1
 
     totals = summarize(transactions)
+
+    if args.json:
+        by_game = summarize_by_game(transactions)
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "totals": _totals_to_json(totals),
+                    "by_game": _by_game_to_json(by_game),
+                }
+            )
+        )
+        return 0
+
     print("Lifetime profit/loss:")
     for currency, bucket in sorted(totals.items()):
         print(
