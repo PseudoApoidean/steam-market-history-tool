@@ -33,9 +33,28 @@ pytest
 ```sh
 steam-market-history path/to/steamcommunity_market_history.json
 steam-market-history path/to/history.json --by-game
-steam-market-history path/to/history.json --whitelist "Counter-Strike 2,Rust"
-steam-market-history path/to/history.json --blacklist "Team Fortress 2"
 steam-market-history path/to/history.json --list-games
+```
+
+### Filtering
+
+`--filter` takes a query string and can be repeated (repeats OR together):
+
+- `field:pattern` clauses AND together. A clause's value runs up to the next clause, so it may contain spaces (e.g. a full game name).
+- `pattern1||pattern2` within one clause's value OR together.
+- Patterns are case-insensitive shell globs (`*`, `?`).
+- A leading `!` on a clause negates it.
+- Fields: `game` (matches the game name Steam shows) and `name` (matches the item name).
+
+```sh
+# Lifetime profit from selling CS2/CSGO crates specifically
+steam-market-history path/to/history.json --filter "game:CSGO||CS2||Counter-Strike 2 name:*Case"
+
+# Everything except Rust
+steam-market-history path/to/history.json --filter "!game:Rust"
+
+# CS2 crates OR anything from Rust
+steam-market-history path/to/history.json --filter "game:CS2 name:*Case" --filter "game:Rust"
 ```
 
 Or without installing the console script:
