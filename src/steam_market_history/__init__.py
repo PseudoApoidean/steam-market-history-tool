@@ -7,19 +7,32 @@ core, not the core itself — a future GUI frontend should import from here
 directly rather than shelling out to or duplicating the CLI.
 """
 
-from .filters import filter_by_games, unique_game_names
+from .filters import (
+    Clause,
+    FilterQueryError,
+    Query,
+    filter_by_queries,
+    match_query,
+    parse_query,
+    unique_game_names,
+)
 from .models import Action, Transaction
 from .parser import HistoryParseError, load_history_json, parse_transactions
 from .stats import CurrencyTotals, GameSummary, summarize, summarize_by_game
 
 __all__ = [
     "Action",
+    "Clause",
     "CurrencyTotals",
+    "FilterQueryError",
     "GameSummary",
     "HistoryParseError",
+    "Query",
     "Transaction",
-    "filter_by_games",
+    "filter_by_queries",
     "load_history_json",
+    "match_query",
+    "parse_query",
     "parse_transactions",
     "summarize",
     "summarize_by_game",
