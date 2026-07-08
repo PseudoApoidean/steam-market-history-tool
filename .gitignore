@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/
+
+# Editors
+.vscode/
+.idea/
+
+# Personal market history exports (contain your trade history — not for version control)
+/steamcommunity_market_history.json
+/data/

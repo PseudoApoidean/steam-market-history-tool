@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "steam-market-history"
+version = "0.1.0"
+description = "Analyze lifetime profit/loss from a Steam Community Market history export"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+steam-market-history = "steam_market_history.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
