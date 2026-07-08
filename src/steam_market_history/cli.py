@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .filters import filter_by_games, unique_game_names
+from .filters import FilterQueryError, filter_by_queries, parse_query, unique_game_names
 from .parser import load_history_json, parse_transactions
 from .stats import summarize, summarize_by_game
 
@@ -16,12 +16,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("history_json", type=Path, help="Path to the market history JSON export")
     parser.add_argument(
-        "--whitelist",
-        help="Comma-separated game names to include (all others excluded)",
-    )
-    parser.add_argument(
-        "--blacklist",
-        help="Comma-separated game names to exclude",
+        "--filter",
+        dest="filters",
+        action="append",
+        metavar="QUERY",
+        help=(
+            "Filter transactions by a query, e.g. "
+            "'game:CSGO||CS2||Counter-Strike 2 name:*Case'. Clauses (field:value, "
+            "each starting a new field:) AND together; a value may contain spaces "
+            "and runs up to the next clause; '||'-separated patterns within a "
+            "clause's value OR together; patterns are case-insensitive globs; a "
+            "leading '!' on a clause negates it (e.g. '!game:Rust'). Fields: "
+            "game, name. Repeat --filter to OR multiple queries together."
+        ),
     )
     parser.add_argument(
         "--by-game",
@@ -36,12 +43,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _split_names(raw: str | None) -> list[str] | None:
-    if raw is None:
-        return None
-    return [name.strip() for name in raw.split(",") if name.strip()]
-
-
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -53,11 +54,13 @@ def main(argv: list[str] | None = None) -> int:
             print(name)
         return 0
 
-    transactions = filter_by_games(
-        transactions,
-        whitelist=_split_names(args.whitelist),
-        blacklist=_split_names(args.blacklist),
-    )
+    try:
+        queries = [parse_query(query_text) for query_text in args.filters or []]
+    except FilterQueryError as exc:
+        print(f"Invalid --filter query: {exc}", file=sys.stderr)
+        return 1
+
+    transactions = filter_by_queries(transactions, queries)
 
     if not transactions:
         print("No transactions match the given filters.", file=sys.stderr)
