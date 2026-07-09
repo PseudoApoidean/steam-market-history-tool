@@ -15,6 +15,7 @@ class FilterQueryError(ValueError):
 _FIELD_ACCESSORS: dict[str, Callable[[Transaction], str]] = {
     "game": lambda t: t.game_name,
     "name": lambda t: t.item_name,
+    "acquisition": lambda t: t.acquisition,
 }
 
 # Matches the start of a clause, e.g. "game:" or "!name:", only at the start
@@ -58,7 +59,8 @@ def parse_query(text: str) -> Query:
     """Parse a filter query string into a `Query`.
 
     Syntax: `field:pattern1||pattern2` clauses, ANDed together. `field` is
-    one of "game" or "name". A leading `!` on a clause negates it. Patterns
+    one of "game", "name", or "acquisition". A leading `!` on a clause
+    negates it. Patterns
     are shell-style globs (`*`, `?`), matched case-insensitively. A clause's
     value runs up to the next clause (so it may contain spaces, e.g. a full
     game name) — only `||` separates multiple patterns within one clause.
