@@ -7,6 +7,7 @@ from steam_market_history.stats import (
     summarize,
     summarize_acquisition,
     summarize_by_game,
+    summarize_by_item,
 )
 
 
@@ -60,6 +61,22 @@ def test_summarize_by_game_keeps_games_separate() -> None:
 
     assert by_game["Rust"].totals_by_currency["£"].net_profit == Decimal("2.00")
     assert by_game["Counter-Strike 2"].totals_by_currency["£"].net_profit == Decimal("-3.00")
+
+
+def test_summarize_by_item_keeps_items_separate() -> None:
+    txns = [
+        _txn(0, "Rust", Action.SOLD, "5.00", item_name="Skin A"),
+        _txn(1, "Rust", Action.PURCHASED, "2.00", item_name="Skin A"),
+        _txn(2, "Rust", Action.SOLD, "1.00", item_name="Skin B"),
+    ]
+
+    by_item = summarize_by_item(txns)
+
+    assert by_item["Skin A"].totals_by_currency["£"].net_profit == Decimal("3.00")
+    assert by_item["Skin B"].totals_by_currency["£"].net_profit == Decimal("1.00")
+    # Different grouping key than by_game - items from the same game don't
+    # collapse together the way they would in summarize_by_game.
+    assert set(by_item) == {"Skin A", "Skin B"}
 
 
 def test_cumulative_series_is_oldest_first_and_running() -> None:

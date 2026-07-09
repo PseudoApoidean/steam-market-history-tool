@@ -89,9 +89,11 @@ steam-market-history path/to/history.json --list-games --json
 
 Always a single JSON object on stdout:
 
-- Success: `{"ok": true, "totals": {...}, "by_game": {...}, "series": {...}, "acquisition": {...}}` (or `{"ok": true, "games": [...]}` with `--list-games`). `--by-game` has no effect in JSON mode — `by_game`, `series`, and `acquisition` are always included alongside `totals`.
+- Success: `{"ok": true, "totals": {...}, "by_game": {...}, "by_item": {...}, "series": {...}, "acquisition": {...}}` (or `{"ok": true, "games": [...]}` with `--list-games`). `--by-game` has no effect in JSON mode — `by_game`, `by_item`, `series`, and `acquisition` are always included alongside `totals`.
 - Failure (bad `--filter` query, unreadable/malformed history file): `{"ok": false, "error": "message"}`.
-- No transactions matching the filter is *not* a failure: `{"ok": true, "totals": {}, "by_game": {}, "series": {}, "acquisition": {}}` (exit code is still 1, same as text mode, so shell scripts checking only the exit code keep working — but stdout is always valid JSON regardless of exit code).
+- No transactions matching the filter is *not* a failure: `{"ok": true, "totals": {}, "by_game": {}, "by_item": {}, "series": {}, "acquisition": {}}` (exit code is still 1, same as text mode, so shell scripts checking only the exit code keep working — but stdout is always valid JSON regardless of exit code).
+
+`by_item` is the same shape as `by_game` (a currency bucket per key, see below) but keyed by item name instead of game/market - unranked, sort it by whichever currency/field matters for a most/least-profitable view. A drop item's full sale price counts as pure profit here, same as everywhere else - filter to `acquisition:purchased` first (see "Drop detection" above) for a "real trades only" ranking.
 
 Each currency bucket looks like:
 

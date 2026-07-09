@@ -27,6 +27,12 @@ class GameSummary:
     totals_by_currency: dict[str, CurrencyTotals] = field(default_factory=dict)
 
 
+@dataclass
+class ItemSummary:
+    item_name: str
+    totals_by_currency: dict[str, CurrencyTotals] = field(default_factory=dict)
+
+
 @dataclass(frozen=True, slots=True)
 class SeriesPoint:
     order_index: int
@@ -67,6 +73,28 @@ def summarize_by_game(transactions: Iterable[Transaction]) -> dict[str, GameSumm
         )
         _apply(bucket, txn)
     return by_game
+
+
+def summarize_by_item(transactions: Iterable[Transaction]) -> dict[str, ItemSummary]:
+    """Per-item-name profit/loss, each broken down by currency.
+
+    Same shape and caveats as `summarize_by_game`, just grouped by
+    `item_name` instead. Ranking (most/least profitable) is left to the
+    caller - sort this dict's values by whichever currency/field matters,
+    same as callers already do for `by_game`. No caller-side filtering is
+    applied here: a drop item's full sale price counts as profit with no
+    cost basis, same as it does in the lifetime totals - filter by
+    `acquisition:purchased` first (see `filters.py`) if a "real trades
+    only" ranking is wanted instead.
+    """
+    by_item: dict[str, ItemSummary] = {}
+    for txn in transactions:
+        item = by_item.setdefault(txn.item_name, ItemSummary(item_name=txn.item_name))
+        bucket = item.totals_by_currency.setdefault(
+            txn.currency, CurrencyTotals(currency=txn.currency)
+        )
+        _apply(bucket, txn)
+    return by_item
 
 
 def cumulative_series(transactions: Iterable[Transaction]) -> dict[str, list[SeriesPoint]]:
