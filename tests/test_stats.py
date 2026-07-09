@@ -9,8 +9,10 @@ from steam_market_history.stats import (
     summarize_acquisition,
     summarize_by_game,
     summarize_by_item,
+    summarize_unrealized,
     summarize_win_rate,
 )
+from steam_market_history.unrealized import UnrealizedItem
 
 
 def _txn(
@@ -161,3 +163,41 @@ def test_summarize_acquisition_ambiguous_bucket_is_a_range() -> None:
     # (2.00) -> max drop revenue = 4.00.
     assert summary["£"].ambiguous_drop_revenue_min == Decimal("2.00")
     assert summary["£"].ambiguous_drop_revenue_max == Decimal("4.00")
+
+
+def test_summarize_unrealized_aggregates_by_currency() -> None:
+    items = {
+        "Skin A": UnrealizedItem(
+            item_name="Skin A",
+            currency="£",
+            held_count=1,
+            current_value=Decimal("5.00"),
+            gain_min=Decimal("2.00"),
+            gain_max=Decimal("3.00"),
+        ),
+        "Skin B": UnrealizedItem(
+            item_name="Skin B",
+            currency="£",
+            held_count=2,
+            current_value=Decimal("4.00"),
+            gain_min=Decimal("-1.00"),
+            gain_max=Decimal("1.00"),
+        ),
+        "Skin C": UnrealizedItem(
+            item_name="Skin C",
+            currency="€",
+            held_count=1,
+            current_value=Decimal("3.00"),
+            gain_min=Decimal("1.00"),
+            gain_max=Decimal("1.00"),
+        ),
+    }
+
+    summary = summarize_unrealized(items)
+
+    assert summary["£"].held_count == 3
+    assert summary["£"].current_value == Decimal("9.00")
+    assert summary["£"].gain_min == Decimal("1.00")
+    assert summary["£"].gain_max == Decimal("4.00")
+    assert summary["€"].held_count == 1
+    assert summary["€"].current_value == Decimal("3.00")
