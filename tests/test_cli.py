@@ -20,6 +20,18 @@ def test_json_output_totals_and_by_game(capsys: pytest.CaptureFixture[str]) -> N
     assert payload["series"]["£"][-1]["cumulative_net_profit"] == payload["totals"]["£"]["net_profit"]
 
 
+def test_json_output_includes_by_item(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main([FIXTURE, "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["by_item"]["Kilowatt Case"]["£"]["net_profit"] == "0.17"
+    # by_item and by_game are different groupings of the same data - not
+    # the same keys, both present simultaneously.
+    assert "Kilowatt Case" not in payload["by_game"]
+    assert "Counter-Strike 2" not in payload["by_item"]
+
+
 def test_json_output_series_is_ordered_oldest_first(capsys: pytest.CaptureFixture[str]) -> None:
     exit_code = main([FIXTURE, "--json"])
 
@@ -60,6 +72,7 @@ def test_json_output_no_matches_is_still_valid_json(capsys: pytest.CaptureFixtur
         "ok": True,
         "totals": {},
         "by_game": {},
+        "by_item": {},
         "series": {},
         "acquisition": {},
     }
