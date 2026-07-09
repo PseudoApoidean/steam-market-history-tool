@@ -3,7 +3,7 @@
 ## Design principles
 
 - **Core logic is presentation-agnostic.** `parser`, `filters`, and `stats` operate on plain data (a dict in, dataclasses out) with no knowledge of argparse or stdout. `cli.py` is just today's one consumer of that core.
-- **The CLI's `--json` output is a stable machine interface, not an afterthought.** A separate GUI project (Steam Market Ledger) shells out to this CLI rather than importing this package directly, so the JSON shape (`{"ok": ..., "totals": ..., "by_game": ...}` / `{"ok": ..., "games": [...]}` / `{"ok": false, "error": ...}`) is treated as a contract: keep it backward compatible, don't casually reshape it.
+- **The CLI's `--json` output is a stable machine interface, not an afterthought.** A separate GUI project (Steam Market Ledger) shells out to this CLI rather than importing this package directly, so the JSON shape (`{"ok": ..., "totals": ..., "by_game": ..., "series": ...}` / `{"ok": ..., "games": [...]}` / `{"ok": false, "error": ...}`) is treated as a contract: keep it backward compatible, don't casually reshape it.
 - **No parsing dependencies.** Steam doesn't expose your market history as structured JSON — the useful data is a server-rendered HTML fragment embedded in the export. That fragment's row format is simple and stable enough to extract with the standard library (`re`, `html`), so the tool has zero third-party runtime dependencies and needs no virtualenv for casual use.
 - **Currencies are never silently mixed.** Profit is always reported per currency symbol; nothing gets summed across currencies without an explicit (and currently unimplemented) conversion step.
 - **Row order over invented dates.** Steam's history omits the year from every date field, even for entries spanning multiple years. Rather than guessing, each transaction keeps `order_index` (its position in Steam's export, newest first) as the only reliable ordering signal.
@@ -70,9 +70,9 @@ steam-market-history path/to/history.json --list-games --json
 
 Always a single JSON object on stdout:
 
-- Success: `{"ok": true, "totals": {...}, "by_game": {...}}` (or `{"ok": true, "games": [...]}` with `--list-games`). `--by-game` has no effect in JSON mode — `by_game` is always included alongside `totals`.
+- Success: `{"ok": true, "totals": {...}, "by_game": {...}, "series": {...}}` (or `{"ok": true, "games": [...]}` with `--list-games`). `--by-game` has no effect in JSON mode — `by_game` and `series` are always included alongside `totals`.
 - Failure (bad `--filter` query, unreadable/malformed history file): `{"ok": false, "error": "message"}`.
-- No transactions matching the filter is *not* a failure: `{"ok": true, "totals": {}, "by_game": {}}` (exit code is still 1, same as text mode, so shell scripts checking only the exit code keep working — but stdout is always valid JSON regardless of exit code).
+- No transactions matching the filter is *not* a failure: `{"ok": true, "totals": {}, "by_game": {}, "series": {}}` (exit code is still 1, same as text mode, so shell scripts checking only the exit code keep working — but stdout is always valid JSON regardless of exit code).
 
 Each currency bucket looks like:
 
@@ -81,6 +81,12 @@ Each currency bucket looks like:
 ```
 
 Amounts are decimal strings (not floats), to avoid floating-point rounding on money.
+
+`series` is a running net-profit total per currency, ordered oldest-transaction-first (using `order_index`, since there's no year to sort by — see design principles above):
+
+```json
+{"£": [{"order_index": 4, "acted_on": "19 Jun", "cumulative_net_profit": "0.17"}, {"order_index": 0, "acted_on": "20 Jun", "cumulative_net_profit": "1.72"}]}
+```
 
 Or without installing the console script:
 
