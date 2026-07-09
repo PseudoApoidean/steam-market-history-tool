@@ -75,6 +75,7 @@ def test_json_output_no_matches_is_still_valid_json(capsys: pytest.CaptureFixtur
         "by_item": {},
         "series": {},
         "acquisition": {},
+        "win_rate": {},
     }
 
 
@@ -107,6 +108,16 @@ def test_json_output_includes_acquisition_summary(capsys: pytest.CaptureFixture[
     eur = payload["acquisition"]["€"]
     assert eur["confirmed_drop_count"] == 1
     assert eur["confirmed_drop_revenue"] == "2.00"
+
+
+def test_json_output_includes_win_rate_key(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main([FIXTURE, "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    # No item in the fixture has both a purchase and a sale of the same
+    # name, so there are no FIFO pairs at all - empty, not missing.
+    assert payload["win_rate"] == {}
 
 
 def test_missing_file_reports_structured_error(
