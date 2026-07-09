@@ -7,7 +7,14 @@ from pathlib import Path
 
 from .filters import FilterQueryError, filter_by_queries, parse_query, unique_game_names
 from .parser import load_history_json, parse_transactions
-from .stats import CurrencyTotals, GameSummary, summarize, summarize_by_game
+from .stats import (
+    CurrencyTotals,
+    GameSummary,
+    SeriesPoint,
+    cumulative_series,
+    summarize,
+    summarize_by_game,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -48,8 +55,11 @@ def build_parser() -> argparse.ArgumentParser:
             "Output machine-readable JSON instead of human-readable text. Always "
             "'{\"ok\": true|false, ...}'; on success the payload is either "
             "{\"games\": [...]} (with --list-games) or {\"totals\": {...}, "
-            "\"by_game\": {...}} (--by-game has no effect in JSON mode, both are "
-            "always included); on failure {\"error\": \"message\"}."
+            "\"by_game\": {...}, \"series\": {...}} (--by-game has no effect in "
+            "JSON mode, all three are always included; \"series\" is a running "
+            "net-profit total per currency ordered oldest-transaction-first, "
+            "keyed by currency the same as \"totals\"); on failure "
+            "{\"error\": \"message\"}."
         ),
     )
     return parser
@@ -73,6 +83,21 @@ def _by_game_to_json(by_game: dict[str, GameSummary]) -> dict[str, object]:
     return {
         game_name: _totals_to_json(summary.totals_by_currency)
         for game_name, summary in by_game.items()
+    }
+
+
+def _series_point_to_json(point: SeriesPoint) -> dict[str, object]:
+    return {
+        "order_index": point.order_index,
+        "acted_on": point.acted_on,
+        "cumulative_net_profit": str(point.cumulative_net_profit),
+    }
+
+
+def _series_to_json(series: dict[str, list[SeriesPoint]]) -> dict[str, object]:
+    return {
+        currency: [_series_point_to_json(point) for point in points]
+        for currency, points in series.items()
     }
 
 
@@ -111,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not transactions:
         if args.json:
-            print(json.dumps({"ok": True, "totals": {}, "by_game": {}}))
+            print(json.dumps({"ok": True, "totals": {}, "by_game": {}, "series": {}}))
         else:
             print("No transactions match the given filters.", file=sys.stderr)
         return 1
@@ -120,12 +145,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.json:
         by_game = summarize_by_game(transactions)
+        series = cumulative_series(transactions)
         print(
             json.dumps(
                 {
                     "ok": True,
                     "totals": _totals_to_json(totals),
                     "by_game": _by_game_to_json(by_game),
+                    "series": _series_to_json(series),
                 }
             )
         )

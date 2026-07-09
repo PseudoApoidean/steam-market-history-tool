@@ -26,6 +26,13 @@ class GameSummary:
     totals_by_currency: dict[str, CurrencyTotals] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class SeriesPoint:
+    order_index: int
+    acted_on: str
+    cumulative_net_profit: Decimal
+
+
 def summarize(transactions: Iterable[Transaction]) -> dict[str, CurrencyTotals]:
     """Lifetime profit/loss per currency across all given transactions.
 
@@ -49,6 +56,29 @@ def summarize_by_game(transactions: Iterable[Transaction]) -> dict[str, GameSumm
         )
         _apply(bucket, txn)
     return by_game
+
+
+def cumulative_series(transactions: Iterable[Transaction]) -> dict[str, list[SeriesPoint]]:
+    """Running net-profit total per currency, oldest transaction first.
+
+    Steam's export has no year in `acted_on`/`listed_on`, so `order_index`
+    (0 = most recent) is the only reliable ordering signal across the whole
+    history - see `Transaction`'s docstring. Sorting by `order_index`
+    descending therefore gives oldest-first order without relying on the
+    date strings at all. Currencies are kept separate for the same reason
+    `summarize` keeps them separate: mixing requires an exchange rate this
+    data doesn't have.
+    """
+    series: dict[str, list[SeriesPoint]] = {}
+    running: dict[str, Decimal] = {}
+    for txn in sorted(transactions, key=lambda t: t.order_index, reverse=True):
+        delta = txn.price if txn.action is Action.SOLD else -txn.price
+        total = running.get(txn.currency, Decimal("0")) + delta
+        running[txn.currency] = total
+        series.setdefault(txn.currency, []).append(
+            SeriesPoint(order_index=txn.order_index, acted_on=txn.acted_on, cumulative_net_profit=total)
+        )
+    return series
 
 
 def _apply(bucket: CurrencyTotals, txn: Transaction) -> None:
