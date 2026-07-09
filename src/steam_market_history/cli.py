@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .acquisition import classify
 from .filters import FilterQueryError, filter_by_queries, parse_query, unique_game_names
+from .pairing import fifo_pairs
 from .parser import load_history_json, parse_transactions
 from .stats import (
     AcquisitionSummary,
@@ -14,11 +15,13 @@ from .stats import (
     GameSummary,
     ItemSummary,
     SeriesPoint,
+    WinRateSummary,
     cumulative_series,
     summarize,
     summarize_acquisition,
     summarize_by_game,
     summarize_by_item,
+    summarize_win_rate,
 )
 
 
@@ -63,19 +66,24 @@ def build_parser() -> argparse.ArgumentParser:
             "'{\"ok\": true|false, ...}'; on success the payload is either "
             "{\"games\": [...]} (with --list-games) or {\"totals\": {...}, "
             "\"by_game\": {...}, \"by_item\": {...}, \"series\": {...}, "
-            "\"acquisition\": {...}} (--by-game has no effect in JSON mode, "
-            "all five are always included; \"by_item\" is the same shape as "
-            "\"by_game\" but keyed by item name instead, unranked - sort it "
-            "by whichever currency/field matters for a most/least-profitable "
-            "view; \"series\" is a running net-profit total per currency "
-            "ordered oldest-transaction-first; \"acquisition\", keyed by "
-            "currency like \"totals\", has \"confirmed_drop_revenue\"/"
+            "\"acquisition\": {...}, \"win_rate\": {...}} (--by-game has no "
+            "effect in JSON mode, all six are always included; \"by_item\" "
+            "is the same shape as \"by_game\" but keyed by item name "
+            "instead, unranked - sort it by whichever currency/field "
+            "matters for a most/least-profitable view; \"series\" is a "
+            "running net-profit total per currency ordered "
+            "oldest-transaction-first; \"acquisition\", keyed by currency "
+            "like \"totals\", has \"confirmed_drop_revenue\"/"
             "\"confirmed_drop_count\" (sold items never purchased at all - "
             "exact, not a guess) and \"ambiguous_drop_revenue_min\"/\"_max\" "
             "(sold-more-than-purchased items, where which specific sales are "
             "drops can't be known - a real bound on the data, not a single "
-            "guess) and \"ambiguous_count\"); on failure {\"error\": "
-            "\"message\"}."
+            "guess) and \"ambiguous_count\"; \"win_rate\", keyed by "
+            "currency, has \"profitable_count\"/\"losing_count\"/"
+            "\"breakeven_count\" from FIFO-pairing each item's purchases to "
+            "its sales by order_index (oldest with oldest) - a documented "
+            "convention, not a recovered fact, see the README); on failure "
+            "{\"error\": \"message\"}."
         ),
     )
     return parser
@@ -140,6 +148,20 @@ def _acquisition_to_json(summaries: dict[str, AcquisitionSummary]) -> dict[str, 
     }
 
 
+def _win_rate_summary_to_json(summary: WinRateSummary) -> dict[str, object]:
+    return {
+        "profitable_count": summary.profitable_count,
+        "losing_count": summary.losing_count,
+        "breakeven_count": summary.breakeven_count,
+    }
+
+
+def _win_rate_to_json(summaries: dict[str, WinRateSummary]) -> dict[str, object]:
+    return {
+        currency: _win_rate_summary_to_json(summary) for currency, summary in summaries.items()
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -184,6 +206,7 @@ def main(argv: list[str] | None = None) -> int:
                         "by_item": {},
                         "series": {},
                         "acquisition": {},
+                        "win_rate": {},
                     }
                 )
             )
@@ -198,6 +221,7 @@ def main(argv: list[str] | None = None) -> int:
         by_item = summarize_by_item(transactions)
         series = cumulative_series(transactions)
         acquisition_summary = summarize_acquisition(transactions)
+        win_rate = summarize_win_rate(fifo_pairs(transactions))
         print(
             json.dumps(
                 {
@@ -207,6 +231,7 @@ def main(argv: list[str] | None = None) -> int:
                     "by_item": _by_item_to_json(by_item),
                     "series": _series_to_json(series),
                     "acquisition": _acquisition_to_json(acquisition_summary),
+                    "win_rate": _win_rate_to_json(win_rate),
                 }
             )
         )

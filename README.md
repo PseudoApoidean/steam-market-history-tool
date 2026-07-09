@@ -89,11 +89,17 @@ steam-market-history path/to/history.json --list-games --json
 
 Always a single JSON object on stdout:
 
-- Success: `{"ok": true, "totals": {...}, "by_game": {...}, "by_item": {...}, "series": {...}, "acquisition": {...}}` (or `{"ok": true, "games": [...]}` with `--list-games`). `--by-game` has no effect in JSON mode — `by_game`, `by_item`, `series`, and `acquisition` are always included alongside `totals`.
+- Success: `{"ok": true, "totals": {...}, "by_game": {...}, "by_item": {...}, "series": {...}, "acquisition": {...}, "win_rate": {...}}` (or `{"ok": true, "games": [...]}` with `--list-games`). `--by-game` has no effect in JSON mode — `by_game`, `by_item`, `series`, `acquisition`, and `win_rate` are always included alongside `totals`.
 - Failure (bad `--filter` query, unreadable/malformed history file): `{"ok": false, "error": "message"}`.
-- No transactions matching the filter is *not* a failure: `{"ok": true, "totals": {}, "by_game": {}, "by_item": {}, "series": {}, "acquisition": {}}` (exit code is still 1, same as text mode, so shell scripts checking only the exit code keep working — but stdout is always valid JSON regardless of exit code).
+- No transactions matching the filter is *not* a failure: `{"ok": true, "totals": {}, "by_game": {}, "by_item": {}, "series": {}, "acquisition": {}, "win_rate": {}}` (exit code is still 1, same as text mode, so shell scripts checking only the exit code keep working — but stdout is always valid JSON regardless of exit code).
 
 `by_item` is the same shape as `by_game` (a currency bucket per key, see below) but keyed by item name instead of game/market - unranked, sort it by whichever currency/field matters for a most/least-profitable view. A drop item's full sale price counts as pure profit here, same as everywhere else - filter to `acquisition:purchased` first (see "Drop detection" above) for a "real trades only" ranking.
+
+`win_rate` is per currency, from FIFO-pairing each item name's purchases to its sales by `order_index` (oldest purchase with oldest sale - a documented convention, not a fact recovered from the data, same reasoning as "Drop detection" above but for a different question: not "was this a drop," but "was this specific paired trade profitable"). Excess sales (drops) and excess purchases (still held) aren't part of any pair and don't count toward this:
+
+```json
+{"£": {"profitable_count": 12, "losing_count": 4, "breakeven_count": 1}}
+```
 
 Each currency bucket looks like:
 

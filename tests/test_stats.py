@@ -2,12 +2,14 @@ from decimal import Decimal
 
 from steam_market_history.acquisition import classify
 from steam_market_history.models import Action, Transaction
+from steam_market_history.pairing import fifo_pairs
 from steam_market_history.stats import (
     cumulative_series,
     summarize,
     summarize_acquisition,
     summarize_by_game,
     summarize_by_item,
+    summarize_win_rate,
 )
 
 
@@ -77,6 +79,23 @@ def test_summarize_by_item_keeps_items_separate() -> None:
     # Different grouping key than by_game - items from the same game don't
     # collapse together the way they would in summarize_by_game.
     assert set(by_item) == {"Skin A", "Skin B"}
+
+
+def test_summarize_win_rate_counts_profitable_losing_and_breakeven() -> None:
+    txns = [
+        _txn(0, "Rust", Action.PURCHASED, "1.00", item_name="Win"),
+        _txn(1, "Rust", Action.SOLD, "2.00", item_name="Win"),
+        _txn(2, "Rust", Action.PURCHASED, "5.00", item_name="Loss"),
+        _txn(3, "Rust", Action.SOLD, "3.00", item_name="Loss"),
+        _txn(4, "Rust", Action.PURCHASED, "4.00", item_name="Even"),
+        _txn(5, "Rust", Action.SOLD, "4.00", item_name="Even"),
+    ]
+
+    win_rate = summarize_win_rate(fifo_pairs(txns))
+
+    assert win_rate["£"].profitable_count == 1
+    assert win_rate["£"].losing_count == 1
+    assert win_rate["£"].breakeven_count == 1
 
 
 def test_cumulative_series_is_oldest_first_and_running() -> None:

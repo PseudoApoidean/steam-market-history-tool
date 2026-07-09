@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from . import acquisition
 from .models import Action, Transaction
+from .pairing import TradePair
 
 
 @dataclass
@@ -38,6 +39,14 @@ class SeriesPoint:
     order_index: int
     acted_on: str
     cumulative_net_profit: Decimal
+
+
+@dataclass
+class WinRateSummary:
+    currency: str
+    profitable_count: int = 0
+    losing_count: int = 0
+    breakeven_count: int = 0
 
 
 @dataclass
@@ -118,6 +127,25 @@ def cumulative_series(transactions: Iterable[Transaction]) -> dict[str, list[Ser
             SeriesPoint(order_index=txn.order_index, acted_on=txn.acted_on, cumulative_net_profit=total)
         )
     return series
+
+
+def summarize_win_rate(pairs: Iterable[TradePair]) -> dict[str, WinRateSummary]:
+    """Per currency, how many FIFO-paired trades were profitable/losing/breakeven.
+
+    Takes `pairing.fifo_pairs`' output, not raw transactions - this is a
+    simple win/loss/breakeven count, not a full profit distribution (a
+    histogram or similar could be a later enhancement if wanted).
+    """
+    summaries: dict[str, WinRateSummary] = {}
+    for pair in pairs:
+        bucket = summaries.setdefault(pair.currency, WinRateSummary(currency=pair.currency))
+        if pair.profit > 0:
+            bucket.profitable_count += 1
+        elif pair.profit < 0:
+            bucket.losing_count += 1
+        else:
+            bucket.breakeven_count += 1
+    return summaries
 
 
 def summarize_acquisition(transactions: Iterable[Transaction]) -> dict[str, AcquisitionSummary]:
