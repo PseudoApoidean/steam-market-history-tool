@@ -17,6 +17,7 @@ def _txn(
     game_name: str,
     item_name: str = "item",
     action: Action = Action.SOLD,
+    acquisition: str = "purchased",
 ) -> Transaction:
     return Transaction(
         order_index=order_index,
@@ -27,6 +28,7 @@ def _txn(
         currency="£",
         acted_on="1 Jan",
         listed_on="1 Jan",
+        acquisition=acquisition,
     )
 
 
@@ -118,6 +120,14 @@ def test_filter_by_queries_with_no_queries_returns_everything() -> None:
     txns = [_txn(0, "CS2"), _txn(1, "Rust")]
 
     assert filter_by_queries(txns, []) == txns
+
+
+def test_acquisition_clause_matches_field() -> None:
+    query = parse_query("acquisition:drop")
+
+    assert match_query(_txn(0, "Rust", acquisition="drop"), query)
+    assert not match_query(_txn(0, "Rust", acquisition="purchased"), query)
+    assert not match_query(_txn(0, "Rust", acquisition="ambiguous"), query)
 
 
 def test_unique_game_names_sorted() -> None:

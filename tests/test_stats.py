@@ -1,7 +1,13 @@
 from decimal import Decimal
 
+from steam_market_history.acquisition import classify
 from steam_market_history.models import Action, Transaction
-from steam_market_history.stats import cumulative_series, summarize, summarize_by_game
+from steam_market_history.stats import (
+    cumulative_series,
+    summarize,
+    summarize_acquisition,
+    summarize_by_game,
+)
 
 
 def _txn(
@@ -10,11 +16,12 @@ def _txn(
     action: Action,
     price: str,
     currency: str = "£",
+    item_name: str | None = None,
 ) -> Transaction:
     return Transaction(
         order_index=order_index,
         action=action,
-        item_name=f"item-{order_index}",
+        item_name=item_name if item_name is not None else f"item-{order_index}",
         game_name=game_name,
         price=Decimal(price),
         currency=currency,
@@ -85,3 +92,36 @@ def test_cumulative_series_keeps_currencies_separate() -> None:
 
     assert [p.cumulative_net_profit for p in series["£"]] == [Decimal("1.00")]
     assert [p.cumulative_net_profit for p in series["€"]] == [Decimal("3.00")]
+
+
+def test_summarize_acquisition_confirmed_drop_is_exact() -> None:
+    txns = classify(
+        [
+            _txn(0, "Rust", Action.SOLD, "5.00", item_name="Never Bought"),
+        ]
+    )
+
+    summary = summarize_acquisition(txns)
+
+    assert summary["£"].confirmed_drop_revenue == Decimal("5.00")
+    assert summary["£"].confirmed_drop_count == 1
+    assert summary["£"].ambiguous_count == 0
+
+
+def test_summarize_acquisition_ambiguous_bucket_is_a_range() -> None:
+    txns = classify(
+        [
+            _txn(0, "Rust", Action.PURCHASED, "1.00", item_name="Skin"),
+            _txn(1, "Rust", Action.SOLD, "2.00", item_name="Skin"),
+            _txn(2, "Rust", Action.SOLD, "4.00", item_name="Skin"),
+        ]
+    )
+
+    summary = summarize_acquisition(txns)
+
+    assert summary["£"].ambiguous_count == 2
+    assert summary["£"].confirmed_drop_count == 0
+    # matched=highest (4.00) -> min drop revenue = 2.00; matched=lowest
+    # (2.00) -> max drop revenue = 4.00.
+    assert summary["£"].ambiguous_drop_revenue_min == Decimal("2.00")
+    assert summary["£"].ambiguous_drop_revenue_max == Decimal("4.00")

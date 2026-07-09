@@ -5,14 +5,17 @@ import json
 import sys
 from pathlib import Path
 
+from .acquisition import classify
 from .filters import FilterQueryError, filter_by_queries, parse_query, unique_game_names
 from .parser import load_history_json, parse_transactions
 from .stats import (
+    AcquisitionSummary,
     CurrencyTotals,
     GameSummary,
     SeriesPoint,
     cumulative_series,
     summarize,
+    summarize_acquisition,
     summarize_by_game,
 )
 
@@ -35,7 +38,9 @@ def build_parser() -> argparse.ArgumentParser:
             "and runs up to the next clause; '||'-separated patterns within a "
             "clause's value OR together; patterns are case-insensitive globs; a "
             "leading '!' on a clause negates it (e.g. '!game:Rust'). Fields: "
-            "game, name. Repeat --filter to OR multiple queries together."
+            "game, name, acquisition (values: drop, ambiguous, purchased - "
+            "see --json's help for what these mean). Repeat --filter to OR "
+            "multiple queries together."
         ),
     )
     parser.add_argument(
@@ -55,11 +60,17 @@ def build_parser() -> argparse.ArgumentParser:
             "Output machine-readable JSON instead of human-readable text. Always "
             "'{\"ok\": true|false, ...}'; on success the payload is either "
             "{\"games\": [...]} (with --list-games) or {\"totals\": {...}, "
-            "\"by_game\": {...}, \"series\": {...}} (--by-game has no effect in "
-            "JSON mode, all three are always included; \"series\" is a running "
-            "net-profit total per currency ordered oldest-transaction-first, "
-            "keyed by currency the same as \"totals\"); on failure "
-            "{\"error\": \"message\"}."
+            "\"by_game\": {...}, \"series\": {...}, \"acquisition\": {...}} "
+            "(--by-game has no effect in JSON mode, all four are always "
+            "included; \"series\" is a running net-profit total per currency "
+            "ordered oldest-transaction-first; \"acquisition\", keyed by "
+            "currency like \"totals\", has \"confirmed_drop_revenue\"/"
+            "\"confirmed_drop_count\" (sold items never purchased at all - "
+            "exact, not a guess) and \"ambiguous_drop_revenue_min\"/\"_max\" "
+            "(sold-more-than-purchased items, where which specific sales are "
+            "drops can't be known - a real bound on the data, not a single "
+            "guess) and \"ambiguous_count\"); on failure {\"error\": "
+            "\"message\"}."
         ),
     )
     return parser
@@ -101,12 +112,28 @@ def _series_to_json(series: dict[str, list[SeriesPoint]]) -> dict[str, object]:
     }
 
 
+def _acquisition_summary_to_json(summary: AcquisitionSummary) -> dict[str, object]:
+    return {
+        "confirmed_drop_revenue": str(summary.confirmed_drop_revenue),
+        "confirmed_drop_count": summary.confirmed_drop_count,
+        "ambiguous_drop_revenue_min": str(summary.ambiguous_drop_revenue_min),
+        "ambiguous_drop_revenue_max": str(summary.ambiguous_drop_revenue_max),
+        "ambiguous_count": summary.ambiguous_count,
+    }
+
+
+def _acquisition_to_json(summaries: dict[str, AcquisitionSummary]) -> dict[str, object]:
+    return {
+        currency: _acquisition_summary_to_json(summary) for currency, summary in summaries.items()
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     try:
         payload = load_history_json(args.history_json)
-        transactions = parse_transactions(payload)
+        transactions = classify(parse_transactions(payload))
     except (OSError, ValueError) as exc:
         if args.json:
             print(json.dumps({"ok": False, "error": str(exc)}))
@@ -136,7 +163,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if not transactions:
         if args.json:
-            print(json.dumps({"ok": True, "totals": {}, "by_game": {}, "series": {}}))
+            print(
+                json.dumps(
+                    {"ok": True, "totals": {}, "by_game": {}, "series": {}, "acquisition": {}}
+                )
+            )
         else:
             print("No transactions match the given filters.", file=sys.stderr)
         return 1
@@ -146,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         by_game = summarize_by_game(transactions)
         series = cumulative_series(transactions)
+        acquisition_summary = summarize_acquisition(transactions)
         print(
             json.dumps(
                 {
@@ -153,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
                     "totals": _totals_to_json(totals),
                     "by_game": _by_game_to_json(by_game),
                     "series": _series_to_json(series),
+                    "acquisition": _acquisition_to_json(acquisition_summary),
                 }
             )
         )

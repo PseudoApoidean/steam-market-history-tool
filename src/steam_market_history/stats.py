@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from . import acquisition
 from .models import Action, Transaction
 
 
@@ -31,6 +32,16 @@ class SeriesPoint:
     order_index: int
     acted_on: str
     cumulative_net_profit: Decimal
+
+
+@dataclass
+class AcquisitionSummary:
+    currency: str
+    confirmed_drop_revenue: Decimal = Decimal("0")
+    confirmed_drop_count: int = 0
+    ambiguous_count: int = 0
+    ambiguous_drop_revenue_min: Decimal = Decimal("0")
+    ambiguous_drop_revenue_max: Decimal = Decimal("0")
 
 
 def summarize(transactions: Iterable[Transaction]) -> dict[str, CurrencyTotals]:
@@ -79,6 +90,40 @@ def cumulative_series(transactions: Iterable[Transaction]) -> dict[str, list[Ser
             SeriesPoint(order_index=txn.order_index, acted_on=txn.acted_on, cumulative_net_profit=total)
         )
     return series
+
+
+def summarize_acquisition(transactions: Iterable[Transaction]) -> dict[str, AcquisitionSummary]:
+    """Per currency, confirmed drop revenue and the ambiguous-bucket bounds.
+
+    Requires transactions to have already been through `acquisition.classify`.
+    `confirmed_drop_revenue`/`confirmed_drop_count` are exact - a hard floor,
+    never adjusted later. `ambiguous_drop_revenue_min`/`_max` bound what's
+    consistent with the data for sales that can't be individually resolved -
+    see `acquisition.ambiguous_bounds` and the "Confirmed vs Ambiguous Item
+    Acquisition" design doc for why this is a range, not a single guess.
+    """
+    transactions = list(transactions)
+    summaries: dict[str, AcquisitionSummary] = {}
+
+    for txn in transactions:
+        if txn.acquisition == acquisition.DROP:
+            bucket = summaries.setdefault(
+                txn.currency, AcquisitionSummary(currency=txn.currency)
+            )
+            bucket.confirmed_drop_revenue += txn.price
+            bucket.confirmed_drop_count += 1
+        elif txn.acquisition == acquisition.AMBIGUOUS:
+            bucket = summaries.setdefault(
+                txn.currency, AcquisitionSummary(currency=txn.currency)
+            )
+            bucket.ambiguous_count += 1
+
+    for currency, bounds in acquisition.ambiguous_bounds(transactions).items():
+        bucket = summaries.setdefault(currency, AcquisitionSummary(currency=currency))
+        bucket.ambiguous_drop_revenue_min = bounds.drop_revenue_min
+        bucket.ambiguous_drop_revenue_max = bounds.drop_revenue_max
+
+    return summaries
 
 
 def _apply(bucket: CurrencyTotals, txn: Transaction) -> None:

@@ -56,7 +56,13 @@ def test_json_output_no_matches_is_still_valid_json(capsys: pytest.CaptureFixtur
 
     assert exit_code == 1
     payload = json.loads(capsys.readouterr().out)
-    assert payload == {"ok": True, "totals": {}, "by_game": {}, "series": {}}
+    assert payload == {
+        "ok": True,
+        "totals": {},
+        "by_game": {},
+        "series": {},
+        "acquisition": {},
+    }
 
 
 def test_list_games_json(capsys: pytest.CaptureFixture[str]) -> None:
@@ -64,10 +70,30 @@ def test_list_games_json(capsys: pytest.CaptureFixture[str]) -> None:
 
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
+    # "Fire & Ice Case" is appid 753 in the fixture, so its game_name is
+    # corrected to "Steam" rather than the raw "Team Fortress 2" - see
+    # test_parser.py.
     assert payload == {
         "ok": True,
-        "games": ["Counter-Strike 2", "Rust", "Team Fortress 2"],
+        "games": ["Counter-Strike 2", "Rust", "Steam"],
     }
+
+
+def test_json_output_includes_acquisition_summary(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main([FIXTURE, "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    # Both fixture sales ("Kilowatt Case", "Fire & Ice Case") have no
+    # purchase of the same item name at all - confirmed drops, not
+    # ambiguous. See test_acquisition.py for the ambiguous-bucket cases.
+    gbp = payload["acquisition"]["£"]
+    assert gbp["confirmed_drop_count"] == 1
+    assert gbp["confirmed_drop_revenue"] == "0.17"
+    assert gbp["ambiguous_count"] == 0
+    eur = payload["acquisition"]["€"]
+    assert eur["confirmed_drop_count"] == 1
+    assert eur["confirmed_drop_revenue"] == "2.00"
 
 
 def test_missing_file_reports_structured_error(
