@@ -7,6 +7,7 @@ from steam_market_history.stats import (
     cumulative_series,
     summarize,
     summarize_acquisition,
+    summarize_by_category,
     summarize_by_game,
     summarize_by_item,
     summarize_unrealized,
@@ -22,6 +23,8 @@ def _txn(
     price: str,
     currency: str = "£",
     item_name: str | None = None,
+    category: str | None = None,
+    appid: str | None = None,
 ) -> Transaction:
     return Transaction(
         order_index=order_index,
@@ -32,6 +35,8 @@ def _txn(
         currency=currency,
         acted_on="1 Jan",
         listed_on="1 Jan",
+        category=category,
+        appid=appid,
     )
 
 
@@ -65,6 +70,42 @@ def test_summarize_by_game_keeps_games_separate() -> None:
 
     assert by_game["Rust"].totals_by_currency["£"].net_profit == Decimal("2.00")
     assert by_game["Counter-Strike 2"].totals_by_currency["£"].net_profit == Decimal("-3.00")
+
+
+def test_summarize_by_game_captures_appid() -> None:
+    txns = [
+        _txn(0, "Steam", Action.SOLD, "1.00", appid="753"),
+        _txn(1, "Rust", Action.PURCHASED, "1.00", appid=None),
+    ]
+
+    by_game = summarize_by_game(txns)
+
+    assert by_game["Steam"].appid == "753"
+    assert by_game["Rust"].appid is None
+
+
+def test_summarize_by_category_scopes_categories_per_game() -> None:
+    """A category isn't exclusive to one game_name - two different games can
+    each have their own same-named category, and totals must stay scoped
+    to the game they actually belong to rather than getting mixed."""
+    txns = [
+        _txn(0, "Steam", Action.SOLD, "2.00", category="Trading Card"),
+        _txn(1, "Counter-Strike 2", Action.SOLD, "5.00", category="Container"),
+        _txn(2, "Counter-Strike 2", Action.PURCHASED, "3.00", category="Container"),
+        _txn(3, "Rust", Action.SOLD, "1.00", category=None),
+    ]
+
+    by_category = summarize_by_category(txns)
+
+    assert by_category["Steam"]["Trading Card"].totals_by_currency["£"].net_profit == Decimal(
+        "2.00"
+    )
+    assert by_category["Counter-Strike 2"]["Container"].totals_by_currency[
+        "£"
+    ].net_profit == Decimal("2.00")
+    # Rust's only transaction has no category - excluded entirely, not an
+    # empty per-game entry.
+    assert "Rust" not in by_category
 
 
 def test_summarize_by_item_keeps_items_separate() -> None:

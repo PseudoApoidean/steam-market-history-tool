@@ -20,6 +20,28 @@ def test_json_output_totals_and_by_game(capsys: pytest.CaptureFixture[str]) -> N
     assert payload["series"]["£"][-1]["cumulative_net_profit"] == payload["totals"]["£"]["net_profit"]
 
 
+def test_json_output_includes_by_category_and_game_appids(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main([FIXTURE, "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    # by_category is nested under game name, not a flat top-level bucket -
+    # "Steam" and "Counter-Strike 2" each have their own category totals.
+    assert payload["by_category"]["Counter-Strike 2"]["Base Grade Container"]["£"][
+        "net_profit"
+    ] == "0.17"
+    assert payload["by_category"]["Steam"]["Fire & Ice Case Trading Card"]["€"][
+        "net_profit"
+    ] == "2.00"
+    # Rust's only transaction has no resolvable category - absent entirely.
+    assert "Rust" not in payload["by_category"]
+    assert payload["game_appids"]["Counter-Strike 2"] == "730"
+    assert payload["game_appids"]["Steam"] == "753"
+    assert payload["game_appids"]["Rust"] is None
+
+
 def test_json_output_includes_by_item(capsys: pytest.CaptureFixture[str]) -> None:
     exit_code = main([FIXTURE, "--json"])
 
@@ -73,6 +95,8 @@ def test_json_output_no_matches_is_still_valid_json(capsys: pytest.CaptureFixtur
         "totals": {},
         "by_game": {},
         "by_item": {},
+        "by_category": {},
+        "game_appids": {},
         "series": {},
         "acquisition": {},
         "win_rate": {},

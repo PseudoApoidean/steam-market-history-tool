@@ -13,6 +13,7 @@ from .parser import load_history_json, parse_transactions
 from .prices import PriceFileError, load_price_file
 from .stats import (
     AcquisitionSummary,
+    CategorySummary,
     CurrencyTotals,
     GameSummary,
     ItemSummary,
@@ -22,6 +23,7 @@ from .stats import (
     cumulative_series,
     summarize,
     summarize_acquisition,
+    summarize_by_category,
     summarize_by_game,
     summarize_by_item,
     summarize_unrealized,
@@ -49,8 +51,10 @@ def build_parser() -> argparse.ArgumentParser:
             "clause's value OR together; patterns are case-insensitive globs; a "
             "leading '!' on a clause negates it (e.g. '!game:Rust'). Fields: "
             "game, name, acquisition (values: drop, ambiguous, purchased - "
-            "see --json's help for what these mean). Repeat --filter to OR "
-            "multiple queries together."
+            "see --json's help for what these mean), category (Steam's own "
+            "item-type string, e.g. 'Trading Card' - not every transaction "
+            "has one, see --json's \"by_category\" for what's available). "
+            "Repeat --filter to OR multiple queries together."
         ),
     )
     parser.add_argument(
@@ -83,13 +87,24 @@ def build_parser() -> argparse.ArgumentParser:
             "Output machine-readable JSON instead of human-readable text. Always "
             "'{\"ok\": true|false, ...}'; on success the payload is either "
             "{\"games\": [...]} (with --list-games) or {\"totals\": {...}, "
-            "\"by_game\": {...}, \"by_item\": {...}, \"series\": {...}, "
+            "\"by_game\": {...}, \"by_item\": {...}, \"by_category\": {...}, "
+            "\"game_appids\": {...}, \"series\": {...}, "
             "\"acquisition\": {...}, \"win_rate\": {...}, \"unrealized\": {...}, "
             "\"unrealized_missing_prices\": [...]} (--by-game has no "
             "effect in JSON mode, all keys are always included; \"by_item\" "
             "is the same shape as \"by_game\" but keyed by item name "
             "instead, unranked - sort it by whichever currency/field "
-            "matters for a most/least-profitable view; \"series\" is a "
+            "matters for a most/least-profitable view; \"by_category\", "
+            "keyed by game name then category (Steam's own item-type "
+            "string), is the same per-currency totals shape again one "
+            "level deeper - nested under game name rather than a flat "
+            "top-level breakdown, since category isn't exclusive to any "
+            "one game and totals need to stay scoped to the game they "
+            "belong to; a game with no categorized transactions is simply "
+            "absent, not an empty object; \"game_appids\", keyed by game "
+            "name, gives that game's real Steam appid (or null if never "
+            "resolved) - a stable identifier distinct from the display "
+            "game name, e.g. for icon lookups; \"series\" is a "
             "running net-profit total per currency ordered "
             "oldest-transaction-first; \"acquisition\", keyed by currency "
             "like \"totals\", has \"confirmed_drop_revenue\"/"
@@ -142,6 +157,20 @@ def _by_item_to_json(by_item: dict[str, ItemSummary]) -> dict[str, object]:
         item_name: _totals_to_json(summary.totals_by_currency)
         for item_name, summary in by_item.items()
     }
+
+
+def _by_category_to_json(by_category: dict[str, dict[str, CategorySummary]]) -> dict[str, object]:
+    return {
+        game_name: {
+            category: _totals_to_json(summary.totals_by_currency)
+            for category, summary in categories.items()
+        }
+        for game_name, categories in by_category.items()
+    }
+
+
+def _game_appids_to_json(by_game: dict[str, GameSummary]) -> dict[str, object]:
+    return {game_name: summary.appid for game_name, summary in by_game.items()}
 
 
 def _series_point_to_json(point: SeriesPoint) -> dict[str, object]:
@@ -257,6 +286,8 @@ def main(argv: list[str] | None = None) -> int:
                         "totals": {},
                         "by_game": {},
                         "by_item": {},
+                        "by_category": {},
+                        "game_appids": {},
                         "series": {},
                         "acquisition": {},
                         "win_rate": {},
@@ -274,6 +305,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         by_game = summarize_by_game(transactions)
         by_item = summarize_by_item(transactions)
+        by_category = summarize_by_category(transactions)
         series = cumulative_series(transactions)
         acquisition_summary = summarize_acquisition(transactions)
         win_rate = summarize_win_rate(fifo_pairs(transactions))
@@ -289,6 +321,8 @@ def main(argv: list[str] | None = None) -> int:
                     "totals": _totals_to_json(totals),
                     "by_game": _by_game_to_json(by_game),
                     "by_item": _by_item_to_json(by_item),
+                    "by_category": _by_category_to_json(by_category),
+                    "game_appids": _game_appids_to_json(by_game),
                     "series": _series_to_json(series),
                     "acquisition": _acquisition_to_json(acquisition_summary),
                     "win_rate": _win_rate_to_json(win_rate),

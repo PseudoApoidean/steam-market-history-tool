@@ -25,6 +25,7 @@ def test_parse_transactions_from_fixture() -> None:
     # appid 730 (non-753) - game_name passes through unchanged, category
     # comes from the assets/hovers linkage.
     assert first.category == "Base Grade Container"
+    assert first.appid == "730"
 
     second = transactions[1]
     assert second.action is Action.PURCHASED
@@ -33,6 +34,7 @@ def test_parse_transactions_from_fixture() -> None:
     assert second.currency == "£"
     # No hovers entry for this row in the fixture - falls back cleanly.
     assert second.category is None
+    assert second.appid is None
 
     third = transactions[2]
     assert third.action is Action.SOLD
@@ -43,3 +45,36 @@ def test_parse_transactions_from_fixture() -> None:
     # HTML string ("Team Fortress 2"), category from the asset's `type`.
     assert third.game_name == "Steam"
     assert third.category == "Fire & Ice Case Trading Card"
+    assert third.appid == "753"
+
+
+def test_appid_captured_even_when_assets_lookup_fails() -> None:
+    """appid only needs the `hovers` blob; `category` additionally needs a
+    matching `assets` entry - a hover pointing at an appid/contextid/assetid
+    triple missing from `assets` should still yield an `appid`, just no
+    `category`."""
+    row_html = (
+        '<div class="market_listing_row market_recent_listing_row" id="history_row_9_9">'
+        '<div class="market_listing_right_cell market_listing_their_price">'
+        '<span class="market_listing_price">£1.00</span></div>'
+        '<div class="market_listing_right_cell market_listing_listed_date can_combine">1 Jan</div>'
+        '<div class="market_listing_right_cell market_listing_listed_date can_combine">1 Jan</div>'
+        '<span id="history_row_9_9_name" class="market_listing_item_name">Widget</span>'
+        '<span class="market_listing_game_name">Widgetville</span>'
+        '<div class="market_listing_listed_date_combined">Sold: 1 Jan</div>'
+        "</div>"
+    )
+    payload = {
+        "assets": {},
+        "hovers": (
+            "CreateItemHoverFromContainer( g_rgAssets, 'history_row_9_9_name', "
+            "999, '1', '1', 0 );"
+        ),
+        "results_html": "market_listing_table_header" + row_html,
+    }
+
+    transactions = parse_transactions(payload)
+
+    assert len(transactions) == 1
+    assert transactions[0].appid == "999"
+    assert transactions[0].category is None

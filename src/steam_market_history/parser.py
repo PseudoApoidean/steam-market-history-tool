@@ -48,10 +48,11 @@ def parse_transactions(payload: dict[str, Any]) -> list[Transaction]:
 
     `assets`/`hovers`, when present, let a row's `game_name` be corrected
     (community items - cards, emoticons, etc. - report a conflated string
-    otherwise, see `_STEAM_COMMUNITY_APPID`) and a `category` populated. A
-    row with no corresponding `hovers` entry falls back to the HTML-only
-    behavior rather than failing - this linkage isn't guaranteed present for
-    every export.
+    otherwise, see `_STEAM_COMMUNITY_APPID`), and populate `appid`/`category`.
+    `appid` only needs the `hovers` blob itself; `category` additionally
+    needs a matching `assets` entry. A row with no corresponding `hovers`
+    entry falls back to the HTML-only behavior rather than failing - this
+    linkage isn't guaranteed present for every export.
     """
     results_html = payload.get("results_html", "")
     row_fragments = results_html.split(_ROW_SPLIT)[1:]
@@ -96,11 +97,13 @@ def _parse_row(
     action = Action.SOLD if action_match.group(1) == "Sold" else Action.PURCHASED
     game_name = html.unescape(game_match.group(1))
     category = None
+    row_appid = None
 
     row_id_match = _ROW_ID_RE.search(fragment)
     hover = hover_map.get(row_id_match.group(1)) if row_id_match else None
     if hover:
         appid, contextid, assetid = hover
+        row_appid = appid
         asset = assets.get(appid, {}).get(contextid, {}).get(assetid)
         if asset:
             if appid == _STEAM_COMMUNITY_APPID:
@@ -117,4 +120,5 @@ def _parse_row(
         acted_on=dates[0],
         listed_on=dates[1],
         category=category,
+        appid=row_appid,
     )

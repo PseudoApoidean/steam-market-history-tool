@@ -20,9 +20,14 @@ class Transaction:
     recoverable from this data alone; `order_index` is the only reliable
     ordering signal.
 
-    `category` is `None` when the row has no corresponding entry in the
-    export's `assets`/`hovers` data (see `parser.py`) - not every row is
-    guaranteed a match. `acquisition` defaults to `"purchased"` at
+    `category`/`appid` are `None` when the row has no corresponding entry
+    in the export's `hovers` data (see `parser.py`) - not every row is
+    guaranteed a match. `appid` is Steam's real per-game id (e.g. every
+    community item - cards, emoticons, etc. - shares the generic `753`;
+    a real economy item like a CS2 skin keeps its own game's appid) -
+    distinct from `game_name`, which is a display string corrected for
+    the community-item case (see `_STEAM_COMMUNITY_APPID` in
+    `parser.py`). `acquisition` defaults to `"purchased"` at
     construction and is only ever overwritten (never to itself) by
     `acquisition.classify` - see that module's docstring for what
     `"drop"`/`"ambiguous"`/`"purchased"` actually mean.
@@ -37,4 +42,5 @@ class Transaction:
     acted_on: str
     listed_on: str
     category: str | None = None
+    appid: str | None = None
     acquisition: str = "purchased"
