@@ -71,6 +71,26 @@ def test_json_output_series_is_ordered_oldest_first(capsys: pytest.CaptureFixtur
     ]
 
 
+def test_json_output_series_points_include_drop_revenue_running_totals(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main([FIXTURE, "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    points = payload["series"]["£"]
+    assert all("cumulative_confirmed_drop_revenue" in p for p in points)
+    assert all("cumulative_ambiguous_ceiling" in p for p in points)
+    assert all("cumulative_best_guess_drop_revenue" in p for p in points)
+    # Fixture's only £ sale ("Kilowatt Case") is a confirmed drop with no
+    # ambiguous bucket at all - see test_acquisition.py/test_stats.py for
+    # the FIFO-guess worked examples where the three totals actually diverge.
+    last = points[-1]
+    assert last["cumulative_confirmed_drop_revenue"] == "0.17"
+    assert last["cumulative_ambiguous_ceiling"] == "0.17"
+    assert last["cumulative_best_guess_drop_revenue"] == "0.17"
+
+
 def test_json_output_respects_filter(capsys: pytest.CaptureFixture[str]) -> None:
     exit_code = main([FIXTURE, "--filter", "game:Counter-Strike 2 name:*Case", "--json"])
 
@@ -140,6 +160,18 @@ def test_json_output_includes_acquisition_summary(capsys: pytest.CaptureFixture[
     eur = payload["acquisition"]["€"]
     assert eur["confirmed_drop_count"] == 1
     assert eur["confirmed_drop_revenue"] == "2.00"
+
+
+def test_json_output_acquisition_summary_includes_best_guess_key(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main([FIXTURE, "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    # No ambiguous items in the fixture, so best_guess is 0 - see
+    # test_acquisition.py for the real FIFO-guess worked example.
+    assert payload["acquisition"]["£"]["ambiguous_drop_revenue_best_guess"] == "0"
 
 
 def test_json_output_includes_win_rate_key(capsys: pytest.CaptureFixture[str]) -> None:
