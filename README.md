@@ -6,6 +6,7 @@
 - **The CLI's `--json` output is a stable machine interface, not an afterthought.** A separate GUI project (Steam Market Ledger) shells out to this CLI rather than importing this package directly, so the JSON shape (`{"ok": ..., "totals": ..., "by_game": ..., "series": ..., "acquisition": ...}` / `{"ok": ..., "games": [...]}` / `{"ok": false, "error": ...}`) is treated as a contract: keep it backward compatible, don't casually reshape it.
 - **Never present an assumption as a fact.** When the data genuinely doesn't determine an answer (e.g. which specific sales among several are Steam-generated drops), report a real range consistent with the data instead of picking one convention and presenting it as certain. See "Drop detection" below.
 - **No parsing dependencies.** Steam doesn't expose your market history as structured JSON — the useful data is a server-rendered HTML fragment embedded in the export. That fragment's row format is simple and stable enough to extract with the standard library (`re`, `html`), so the tool has zero third-party runtime dependencies and needs no virtualenv for casual use.
+- **Zero network calls, ever.** This tool only ever reads local files (the history export, an optional `--price-file`). Anything needing live data (e.g. current market prices for unrealized gains) must be fetched elsewhere and handed in as a file — see "Unrealized gains" below.
 - **Currencies are never silently mixed.** Profit is always reported per currency symbol; nothing gets summed across currencies without an explicit (and currently unimplemented) conversion step.
 - **Row order over invented dates.** Steam's history omits the year from every date field, even for entries spanning multiple years. Rather than guessing, each transaction keeps `order_index` (its position in Steam's export, newest first) as the only reliable ordering signal.
 
@@ -89,9 +90,9 @@ steam-market-history path/to/history.json --list-games --json
 
 Always a single JSON object on stdout:
 
-- Success: `{"ok": true, "totals": {...}, "by_game": {...}, "by_item": {...}, "series": {...}, "acquisition": {...}, "win_rate": {...}}` (or `{"ok": true, "games": [...]}` with `--list-games`). `--by-game` has no effect in JSON mode — `by_game`, `by_item`, `series`, `acquisition`, and `win_rate` are always included alongside `totals`.
-- Failure (bad `--filter` query, unreadable/malformed history file): `{"ok": false, "error": "message"}`.
-- No transactions matching the filter is *not* a failure: `{"ok": true, "totals": {}, "by_game": {}, "by_item": {}, "series": {}, "acquisition": {}, "win_rate": {}}` (exit code is still 1, same as text mode, so shell scripts checking only the exit code keep working — but stdout is always valid JSON regardless of exit code).
+- Success: `{"ok": true, "totals": {...}, "by_game": {...}, "by_item": {...}, "series": {...}, "acquisition": {...}, "win_rate": {...}, "unrealized": {...}, "unrealized_missing_prices": [...]}` (or `{"ok": true, "games": [...]}` with `--list-games`). `--by-game` has no effect in JSON mode — all of these are always included alongside `totals`.
+- Failure (bad `--filter` query, unreadable/malformed history or price file): `{"ok": false, "error": "message"}`.
+- No transactions matching the filter is *not* a failure: `{"ok": true, "totals": {}, "by_game": {}, "by_item": {}, "series": {}, "acquisition": {}, "win_rate": {}, "unrealized": {}, "unrealized_missing_prices": []}` (exit code is still 1, same as text mode, so shell scripts checking only the exit code keep working — but stdout is always valid JSON regardless of exit code).
 
 `by_item` is the same shape as `by_game` (a currency bucket per key, see below) but keyed by item name instead of game/market - unranked, sort it by whichever currency/field matters for a most/least-profitable view. A drop item's full sale price counts as pure profit here, same as everywhere else - filter to `acquisition:purchased` first (see "Drop detection" above) for a "real trades only" ranking.
 
@@ -122,6 +123,28 @@ Amounts are decimal strings (not floats), to avoid floating-point rounding on mo
 ```
 
 `confirmed_drop_revenue`/`confirmed_drop_count` cover sales of items never purchased at all — exact, not an estimate. `ambiguous_drop_revenue_min`/`_max` bound the range of drop revenue possible among sales of items purchased fewer times than sold, where which *specific* sales are drops can't be known; `ambiguous_count` is how many sold transactions fall into that bucket.
+
+### Unrealized gains (`--price-file`)
+
+This tool never makes network calls, full stop — see design principles above. It has no way to know what a currently-held item is worth right now unless told, so `--price-file PATH` points it at a JSON file of `{"item_name": "current_price", ...}`:
+
+```sh
+steam-market-history path/to/history.json --price-file prices.json --json
+```
+
+```json
+{"Metal Facemask": "4.20", "Ellis' Cap": 12}
+```
+
+Prices may be JSON strings or numbers; both are parsed as exact decimals. Fetching a live price, if that ever happens, happens entirely outside this tool (e.g. the Steam Market Ledger GUI making the network call and writing the result to a file in this shape) — this tool can't tell and doesn't need to know whether a price was typed by hand or fetched a second ago.
+
+Without `--price-file`, `unrealized` is `{}` and `unrealized_missing_prices` is `[]` — held items aren't computed at all, not silently zeroed. With it, `unrealized` is per currency:
+
+```json
+{"£": {"held_count": 3, "current_value": "12.60", "gain_min": "4.10", "gain_max": "6.85"}}
+```
+
+"Held" means purchased more times than sold for that item name — the mirror of drop detection above (that finds excess sales; this finds excess purchases). `current_value` is exact (`held_count` × the supplied price). Which *specific* held units remain unsold can't be known (no unique per-item identifier), so like `acquisition`'s ambiguous bucket, the cost-basis side of the gain is a range, not a guess: `gain_max` assumes the cheapest held-count purchases are the ones still held (minimizing cost basis), `gain_min` assumes the priciest ones are. `unrealized_missing_prices` lists held item names with no entry in `--price-file`, so a caller can show an honest "N held items have no price, this total is partial" instead of silently under-counting.
 
 Or without installing the console script:
 

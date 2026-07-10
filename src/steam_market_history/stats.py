@@ -7,6 +7,7 @@ from decimal import Decimal
 from . import acquisition
 from .models import Action, Transaction
 from .pairing import TradePair
+from .unrealized import UnrealizedItem
 
 
 @dataclass
@@ -57,6 +58,15 @@ class AcquisitionSummary:
     ambiguous_count: int = 0
     ambiguous_drop_revenue_min: Decimal = Decimal("0")
     ambiguous_drop_revenue_max: Decimal = Decimal("0")
+
+
+@dataclass
+class UnrealizedSummary:
+    currency: str
+    held_count: int = 0
+    current_value: Decimal = Decimal("0")
+    gain_min: Decimal = Decimal("0")
+    gain_max: Decimal = Decimal("0")
 
 
 def summarize(transactions: Iterable[Transaction]) -> dict[str, CurrencyTotals]:
@@ -179,6 +189,18 @@ def summarize_acquisition(transactions: Iterable[Transaction]) -> dict[str, Acqu
         bucket.ambiguous_drop_revenue_min = bounds.drop_revenue_min
         bucket.ambiguous_drop_revenue_max = bounds.drop_revenue_max
 
+    return summaries
+
+
+def summarize_unrealized(items: dict[str, UnrealizedItem]) -> dict[str, UnrealizedSummary]:
+    """Per currency, aggregate `unrealized.compute_unrealized`'s per-item bounds."""
+    summaries: dict[str, UnrealizedSummary] = {}
+    for item in items.values():
+        bucket = summaries.setdefault(item.currency, UnrealizedSummary(currency=item.currency))
+        bucket.held_count += item.held_count
+        bucket.current_value += item.current_value
+        bucket.gain_min += item.gain_min
+        bucket.gain_max += item.gain_max
     return summaries
 
 

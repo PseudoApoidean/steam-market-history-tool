@@ -76,6 +76,8 @@ def test_json_output_no_matches_is_still_valid_json(capsys: pytest.CaptureFixtur
         "series": {},
         "acquisition": {},
         "win_rate": {},
+        "unrealized": {},
+        "unrealized_missing_prices": [],
     }
 
 
@@ -128,6 +130,64 @@ def test_missing_file_reports_structured_error(
     assert exit_code == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is False
+
+
+def test_json_output_without_price_file_has_empty_unrealized(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main([FIXTURE, "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["unrealized"] == {}
+    assert payload["unrealized_missing_prices"] == []
+
+
+def test_json_output_with_price_file_reports_unrealized_gain(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    # "Rat-a-tat-tat Thompson" is the fixture's only item purchased and
+    # never sold (£1.55) - the sole held item.
+    price_file = tmp_path / "prices.json"
+    price_file.write_text(json.dumps({"Rat-a-tat-tat Thompson": "3.00"}))
+
+    exit_code = main([FIXTURE, "--price-file", str(price_file), "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    gbp = payload["unrealized"]["£"]
+    assert gbp["held_count"] == 1
+    assert gbp["current_value"] == "3.00"
+    assert gbp["gain_min"] == gbp["gain_max"] == "1.45"
+    assert payload["unrealized_missing_prices"] == []
+
+
+def test_json_output_with_price_file_reports_missing_prices(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    price_file = tmp_path / "prices.json"
+    price_file.write_text(json.dumps({}))
+
+    exit_code = main([FIXTURE, "--price-file", str(price_file), "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["unrealized"] == {}
+    assert payload["unrealized_missing_prices"] == ["Rat-a-tat-tat Thompson"]
+
+
+def test_json_output_invalid_price_file_reports_structured_error(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    price_file = tmp_path / "prices.json"
+    price_file.write_text("{not valid json")
+
+    exit_code = main([FIXTURE, "--price-file", str(price_file), "--json"])
+
+    assert exit_code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert "error" in payload
 
 
 def test_text_output_still_works(capsys: pytest.CaptureFixture[str]) -> None:
