@@ -145,6 +145,28 @@ def test_acquisition_clause_matches_field() -> None:
     assert not match_query(_txn(0, "Rust", acquisition="ambiguous"), query)
 
 
+def test_any_keyword_matches_regardless_of_field_value() -> None:
+    query = parse_query("acquisition:any")
+
+    assert match_query(_txn(0, "Rust", acquisition="drop"), query)
+    assert match_query(_txn(0, "Rust", acquisition="purchased"), query)
+    assert match_query(_txn(0, "Rust", acquisition="ambiguous"), query)
+
+
+def test_any_keyword_is_case_insensitive_and_works_on_any_field() -> None:
+    query = parse_query("game:ANY")
+
+    assert match_query(_txn(0, "Rust"), query)
+    assert match_query(_txn(0, "Counter-Strike 2"), query)
+
+
+def test_any_keyword_negated_matches_nothing() -> None:
+    query = parse_query("!acquisition:any")
+
+    assert not match_query(_txn(0, "Rust", acquisition="drop"), query)
+    assert not match_query(_txn(0, "Rust", acquisition="purchased"), query)
+
+
 def test_unique_game_names_sorted() -> None:
     txns = [_txn(0, "Rust"), _txn(1, "Counter-Strike 2"), _txn(2, "Rust")]
 

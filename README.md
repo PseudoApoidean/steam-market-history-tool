@@ -65,6 +65,7 @@ steam-market-history path/to/history.json --list-games
 - Patterns are case-insensitive shell globs (`*`, `?`).
 - A leading `!` on a clause negates it.
 - Fields: `game` (matches the game name Steam shows - see "Game name and category" above), `name` (matches the item name), `acquisition` (matches `drop`/`ambiguous`/`purchased` - see "Drop detection" above), and `category` (matches Steam's own item-type string, e.g. `"Trading Card"` - a transaction with no resolvable category never matches).
+- `any` is a reserved pattern, not a literal value - `field:any` matches every transaction regardless of that field's real value (the same as `field:*`, just a more explicit/self-documenting way to write "no real filter on this field").
 
 ```sh
 # Lifetime profit from selling CS2/CSGO crates specifically
@@ -81,6 +82,9 @@ steam-market-history path/to/history.json --filter "acquisition:drop"
 
 # Only trading cards
 steam-market-history path/to/history.json --filter "category:Trading Card"
+
+# Explicitly no acquisition filter - same result as omitting the field
+steam-market-history path/to/history.json --filter "acquisition:any"
 ```
 
 ### Machine-readable output (`--json`)
