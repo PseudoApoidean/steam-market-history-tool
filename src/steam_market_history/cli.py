@@ -106,7 +106,8 @@ def build_parser() -> argparse.ArgumentParser:
             "resolved) - a stable identifier distinct from the display "
             "game name, e.g. for icon lookups; \"series\" is a "
             "running net-profit total per currency ordered "
-            "oldest-transaction-first; \"acquisition\", keyed by currency "
+            "oldest-transaction-first, each point's \"item_name\" is the "
+            "transaction that produced it; \"acquisition\", keyed by currency "
             "like \"totals\", has \"confirmed_drop_revenue\"/"
             "\"confirmed_drop_count\" (sold items never purchased at all - "
             "exact, not a guess) and \"ambiguous_drop_revenue_min\"/\"_max\" "
@@ -177,6 +178,7 @@ def _series_point_to_json(point: SeriesPoint) -> dict[str, object]:
     return {
         "order_index": point.order_index,
         "acted_on": point.acted_on,
+        "item_name": point.item_name,
         "cumulative_net_profit": str(point.cumulative_net_profit),
     }
 

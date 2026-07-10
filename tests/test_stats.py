@@ -161,6 +161,19 @@ def test_cumulative_series_is_oldest_first_and_running() -> None:
     ]
 
 
+def test_cumulative_series_points_carry_the_item_that_produced_them() -> None:
+    txns = [
+        _txn(0, "Rust", Action.SOLD, "1.00", item_name="Door Skin"),
+        _txn(1, "Rust", Action.PURCHASED, "0.50", item_name="Metal Facemask"),
+    ]
+
+    series = cumulative_series(txns)
+
+    points = series["£"]
+    # Oldest first, so order_index 1 (Metal Facemask) comes before 0 (Door Skin).
+    assert [p.item_name for p in points] == ["Metal Facemask", "Door Skin"]
+
+
 def test_cumulative_series_keeps_currencies_separate() -> None:
     txns = [
         _txn(0, "Rust", Action.SOLD, "1.00", currency="£"),

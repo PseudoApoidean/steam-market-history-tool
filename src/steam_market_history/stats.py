@@ -50,6 +50,7 @@ class CategorySummary:
 class SeriesPoint:
     order_index: int
     acted_on: str
+    item_name: str
     cumulative_net_profit: Decimal
 
 
@@ -167,6 +168,12 @@ def cumulative_series(transactions: Iterable[Transaction]) -> dict[str, list[Ser
     date strings at all. Currencies are kept separate for the same reason
     `summarize` keeps them separate: mixing requires an exchange rate this
     data doesn't have.
+
+    Each point's `item_name` is the transaction that produced it - the
+    item whose sale/purchase pushed the running total to that value - so a
+    caller can answer "what caused this swing" without a separate lookup
+    against the raw transaction list, which this tool's `--json` output
+    never exposes.
     """
     series: dict[str, list[SeriesPoint]] = {}
     running: dict[str, Decimal] = {}
@@ -175,7 +182,12 @@ def cumulative_series(transactions: Iterable[Transaction]) -> dict[str, list[Ser
         total = running.get(txn.currency, Decimal("0")) + delta
         running[txn.currency] = total
         series.setdefault(txn.currency, []).append(
-            SeriesPoint(order_index=txn.order_index, acted_on=txn.acted_on, cumulative_net_profit=total)
+            SeriesPoint(
+                order_index=txn.order_index,
+                acted_on=txn.acted_on,
+                item_name=txn.item_name,
+                cumulative_net_profit=total,
+            )
         )
     return series
 
