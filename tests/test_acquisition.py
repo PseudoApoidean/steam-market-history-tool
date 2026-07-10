@@ -92,6 +92,25 @@ def test_classify_keeps_item_names_independent() -> None:
     assert traded.acquisition == PURCHASED
 
 
+def test_classify_does_not_mix_the_same_item_name_across_currencies() -> None:
+    # SMHT-9: purchased once in £, sold twice in € - the € sale has no
+    # matching purchase *in its own currency*, so both € sales should be
+    # confirmed drops. Before the fix, `classify` bucketed purely by
+    # item_name, so the unrelated £ purchase would have "covered" one of
+    # the € sales, mislabeling it PURCHASED and leaving only one AMBIGUOUS
+    # instead of two DROPs.
+    txns = [
+        _txn(0, Action.PURCHASED, "1.00", item_name="Skin", currency="£"),
+        _txn(1, Action.SOLD, "2.00", item_name="Skin", currency="€"),
+        _txn(2, Action.SOLD, "3.00", item_name="Skin", currency="€"),
+    ]
+
+    result = classify(txns)
+
+    eur_sales = [t for t in result if t.currency == "€"]
+    assert all(s.acquisition == DROP for s in eur_sales)
+
+
 def test_ambiguous_bounds_worked_example() -> None:
     # Two purchases, five sales of the same item, price trending up - the
     # example from the "Confirmed vs Ambiguous Item Acquisition" design

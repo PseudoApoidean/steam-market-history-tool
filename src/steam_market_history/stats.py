@@ -245,7 +245,9 @@ def summarize_acquisition(transactions: Iterable[Transaction]) -> dict[str, Acqu
     return summaries
 
 
-def summarize_unrealized(items: dict[str, UnrealizedItem]) -> dict[str, UnrealizedSummary]:
+def summarize_unrealized(
+    items: dict[tuple[str, str], UnrealizedItem],
+) -> dict[str, UnrealizedSummary]:
     """Per currency, aggregate `unrealized.compute_unrealized`'s per-item bounds."""
     summaries: dict[str, UnrealizedSummary] = {}
     for item in items.values():
