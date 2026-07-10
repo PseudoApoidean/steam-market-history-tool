@@ -127,19 +127,21 @@ Each currency bucket looks like:
 
 Amounts are decimal strings (not floats), to avoid floating-point rounding on money.
 
-`series` is a running net-profit total per currency, ordered oldest-transaction-first (using `order_index`, since there's no year to sort by — see design principles above). Each point's `item_name` is the transaction that produced it - the item whose sale/purchase pushed the running total to that value, so a caller can show "what caused this swing" without a separate lookup (this tool's `--json` output never exposes the raw transaction list):
+`series` is a running net-profit total per currency, ordered oldest-transaction-first (using `order_index`, since there's no year to sort by — see design principles above). Each point's `item_name` is the transaction that produced it - the item whose sale/purchase pushed the running total to that value, so a caller can show "what caused this swing" without a separate lookup (this tool's `--json` output never exposes the raw transaction list). Each point also carries three running drop-revenue totals, the same floor/bound/guess distinction as `acquisition` below but accumulated over time instead of a lifetime total:
 
 ```json
-{"£": [{"order_index": 4, "acted_on": "19 Jun", "item_name": "Kilowatt Case", "cumulative_net_profit": "0.17"}, {"order_index": 0, "acted_on": "20 Jun", "item_name": "Operation Bravo Case", "cumulative_net_profit": "1.72"}]}
+{"£": [{"order_index": 4, "acted_on": "19 Jun", "item_name": "Kilowatt Case", "cumulative_net_profit": "0.17", "cumulative_confirmed_drop_revenue": "0.17", "cumulative_ambiguous_ceiling": "0.17", "cumulative_best_guess_drop_revenue": "0.17"}, {"order_index": 0, "acted_on": "20 Jun", "item_name": "Operation Bravo Case", "cumulative_net_profit": "1.72", "cumulative_confirmed_drop_revenue": "0.17", "cumulative_ambiguous_ceiling": "1.72", "cumulative_best_guess_drop_revenue": "0.30"}]}
 ```
 
-`acquisition` is per currency, giving a confirmed drop-revenue floor plus an honest range for what can't be individually resolved — see "Drop detection" above:
+`cumulative_confirmed_drop_revenue` is a simple running sum of confirmed-drop sale prices. `cumulative_ambiguous_ceiling` is that plus the running price-sorted max (a real bound, like `ambiguous_drop_revenue_max` below). `cumulative_best_guess_drop_revenue` is that plus a running FIFO guess instead (like `ambiguous_drop_revenue_best_guess` below) — a specific convention, not a bound, so it isn't guaranteed to sit between the confirmed floor and the ambiguous ceiling at every point, only in the lifetime total.
+
+`acquisition` is per currency, giving a confirmed drop-revenue floor, an honest range for what can't be individually resolved, and a single FIFO-convention guess at resolving that range — see "Drop detection" above:
 
 ```json
-{"£": {"confirmed_drop_revenue": "19.82", "confirmed_drop_count": 24, "ambiguous_drop_revenue_min": "0.23", "ambiguous_drop_revenue_max": "0.41", "ambiguous_count": 4}}
+{"£": {"confirmed_drop_revenue": "19.82", "confirmed_drop_count": 24, "ambiguous_drop_revenue_min": "0.23", "ambiguous_drop_revenue_max": "0.41", "ambiguous_drop_revenue_best_guess": "0.30", "ambiguous_count": 4}}
 ```
 
-`confirmed_drop_revenue`/`confirmed_drop_count` cover sales of items never purchased at all — exact, not an estimate. `ambiguous_drop_revenue_min`/`_max` bound the range of drop revenue possible among sales of items purchased fewer times than sold, where which *specific* sales are drops can't be known; `ambiguous_count` is how many sold transactions fall into that bucket.
+`confirmed_drop_revenue`/`confirmed_drop_count` cover sales of items never purchased at all — exact, not an estimate. `ambiguous_drop_revenue_min`/`_max` bound the range of drop revenue possible among sales of items purchased fewer times than sold, where which *specific* sales are drops can't be known; `ambiguous_count` is how many sold transactions fall into that bucket. `ambiguous_drop_revenue_best_guess` resolves that same bucket to one number via a FIFO convention (the oldest purchases pair with the oldest sales by `order_index`, same idea as `win_rate` below but applied to a different question; the most recent, unpaired sales are the guessed drops) — **a documented convention, not a recovered fact**, and independent of the price-sorted min/max above, so it isn't guaranteed to fall between them for every individual item (only in aggregate, generally).
 
 ### Unrealized gains (`--price-file`)
 

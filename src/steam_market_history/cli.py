@@ -107,13 +107,24 @@ def build_parser() -> argparse.ArgumentParser:
             "game name, e.g. for icon lookups; \"series\" is a "
             "running net-profit total per currency ordered "
             "oldest-transaction-first, each point's \"item_name\" is the "
-            "transaction that produced it; \"acquisition\", keyed by currency "
+            "transaction that produced it, and each point also carries "
+            "three running drop-revenue totals - "
+            "\"cumulative_confirmed_drop_revenue\" (a simple running sum), "
+            "\"cumulative_ambiguous_ceiling\" (confirmed plus the running "
+            "price-sorted max, a real bound) and "
+            "\"cumulative_best_guess_drop_revenue\" (confirmed plus a "
+            "running FIFO guess, a documented convention - see \"win_rate\" "
+            "below for the same FIFO idea applied to a different question); "
+            "\"acquisition\", keyed by currency "
             "like \"totals\", has \"confirmed_drop_revenue\"/"
             "\"confirmed_drop_count\" (sold items never purchased at all - "
-            "exact, not a guess) and \"ambiguous_drop_revenue_min\"/\"_max\" "
+            "exact, not a guess), \"ambiguous_drop_revenue_min\"/\"_max\" "
             "(sold-more-than-purchased items, where which specific sales are "
             "drops can't be known - a real bound on the data, not a single "
-            "guess) and \"ambiguous_count\"; \"win_rate\", keyed by "
+            "guess), \"ambiguous_drop_revenue_best_guess\" (that same bucket "
+            "resolved to one FIFO-convention number instead of a range - a "
+            "documented convention, not a recovered fact) and "
+            "\"ambiguous_count\"; \"win_rate\", keyed by "
             "currency, has \"profitable_count\"/\"losing_count\"/"
             "\"breakeven_count\" from FIFO-pairing each item's purchases to "
             "its sales by order_index (oldest with oldest) - a documented "
@@ -180,6 +191,9 @@ def _series_point_to_json(point: SeriesPoint) -> dict[str, object]:
         "acted_on": point.acted_on,
         "item_name": point.item_name,
         "cumulative_net_profit": str(point.cumulative_net_profit),
+        "cumulative_confirmed_drop_revenue": str(point.cumulative_confirmed_drop_revenue),
+        "cumulative_ambiguous_ceiling": str(point.cumulative_ambiguous_ceiling),
+        "cumulative_best_guess_drop_revenue": str(point.cumulative_best_guess_drop_revenue),
     }
 
 
@@ -196,6 +210,7 @@ def _acquisition_summary_to_json(summary: AcquisitionSummary) -> dict[str, objec
         "confirmed_drop_count": summary.confirmed_drop_count,
         "ambiguous_drop_revenue_min": str(summary.ambiguous_drop_revenue_min),
         "ambiguous_drop_revenue_max": str(summary.ambiguous_drop_revenue_max),
+        "ambiguous_drop_revenue_best_guess": str(summary.ambiguous_drop_revenue_best_guess),
         "ambiguous_count": summary.ambiguous_count,
     }
 

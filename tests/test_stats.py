@@ -217,6 +217,40 @@ def test_summarize_acquisition_ambiguous_bucket_is_a_range() -> None:
     # (2.00) -> max drop revenue = 4.00.
     assert summary["£"].ambiguous_drop_revenue_min == Decimal("2.00")
     assert summary["£"].ambiguous_drop_revenue_max == Decimal("4.00")
+    # FIFO (SMHT-10): the one purchase pairs with the oldest sale (order_index
+    # 2, £4.00) as a real trade, leaving the newer sale (order_index 1,
+    # £2.00) as the guessed drop.
+    assert summary["£"].ambiguous_drop_revenue_best_guess == Decimal("2.00")
+
+
+def test_cumulative_series_running_drop_revenue_totals_diverge_as_expected() -> None:
+    # One confirmed drop (order_index 20, oldest) plus the same ambiguous
+    # worked example as test_acquisition.py's FIFO test: 2 purchases, 3
+    # ambiguous sales where min=1.00, max=100.00, best_guess=2.00.
+    txns = classify(
+        [
+            _txn(20, "Rust", Action.SOLD, "9.00", item_name="Never Bought"),
+            _txn(10, "Rust", Action.PURCHASED, "1.00", item_name="Skin"),
+            _txn(11, "Rust", Action.PURCHASED, "1.00", item_name="Skin"),
+            _txn(5, "Rust", Action.SOLD, "1.00", item_name="Skin"),
+            _txn(3, "Rust", Action.SOLD, "100.00", item_name="Skin"),
+            _txn(1, "Rust", Action.SOLD, "2.00", item_name="Skin"),
+        ]
+    )
+
+    series = cumulative_series(txns)
+
+    by_index = {p.order_index: p for p in series["£"]}
+    # Confirmed drop revenue only ever grows from the one confirmed-drop
+    # sale (order_index 20) - the two ambiguous "matched to a purchase"
+    # sales (order_index 5 under FIFO, order_index 3 under max) never
+    # count toward it.
+    assert by_index[1].cumulative_confirmed_drop_revenue == Decimal("9.00")
+    # Final totals should match summarize_acquisition's aggregate bounds
+    # for the same data: confirmed(9.00) + max(100.00) = 109.00, and
+    # confirmed(9.00) + best_guess(2.00) = 11.00.
+    assert by_index[1].cumulative_ambiguous_ceiling == Decimal("109.00")
+    assert by_index[1].cumulative_best_guess_drop_revenue == Decimal("11.00")
 
 
 def test_summarize_unrealized_aggregates_by_currency() -> None:
