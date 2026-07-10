@@ -38,7 +38,18 @@ class Clause:
 
     def matches(self, transaction: Transaction) -> bool:
         value = _FIELD_ACCESSORS[self.field](transaction).casefold()
-        matched = any(fnmatch(value, pattern.casefold()) for pattern in self.patterns)
+        # "any" is a reserved keyword, not a real field value - matches
+        # unconditionally, same effect as the glob pattern "*" but reads
+        # more clearly as "explicitly no filter on this field" than a
+        # bare wildcard does. Requested for `acquisition:any` specifically
+        # (steam-market-ledger's SML-22 "Include" toggle wants to insert a
+        # real, visible clause instead of silently omitting the field) but
+        # not special-cased to that one field - "any" behaves the same way
+        # for every field, since it's just a readability synonym for "*".
+        matched = any(
+            pattern.casefold() == "any" or fnmatch(value, pattern.casefold())
+            for pattern in self.patterns
+        )
         return not matched if self.negate else matched
 
 
@@ -68,6 +79,13 @@ def parse_query(text: str) -> Query:
     value runs up to the next clause (so it may contain spaces, e.g. a full
     game name) — only `||` separates multiple patterns within one clause.
     Example: `game:CSGO||CS2||Counter-Strike 2 name:*Case`.
+
+    `any` is a reserved pattern, not a literal value to match - a clause
+    like `acquisition:any` matches every transaction regardless of that
+    field's actual value, the same as `acquisition:*` would, but reads
+    more explicitly as "no real filter on this field" for a caller that
+    wants to insert a visible, self-documenting clause rather than
+    silently omitting the field.
     """
     stripped = text.strip()
     if not stripped:
