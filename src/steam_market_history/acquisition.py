@@ -68,6 +68,32 @@ class AmbiguousBounds:
     drop_revenue_max: Decimal
 
 
+def _ambiguous_groups(
+    transactions: Iterable[Transaction],
+) -> dict[tuple[str, str], tuple[list[Transaction], int]]:
+    """Per (item name, currency), that group's ambiguous sales and purchase count.
+
+    Shared grouping step behind `ambiguous_bounds`, `ambiguous_best_guess`,
+    and `ambiguous_contributions` below - all three need exactly this same
+    per-item bucketing (SMHT-9: by currency as well as item name, so a
+    currency-mixed item name's purchases/sales are never reconciled
+    against each other as one pool), just resolved into a different
+    single number (or per-transaction breakdown) afterward.
+
+    Requires `classify` to have already been run - reads `.acquisition`.
+    """
+    ambiguous_sales: dict[tuple[str, str], list[Transaction]] = {}
+    purchased_counts: dict[tuple[str, str], int] = {}
+    for txn in transactions:
+        key = (txn.item_name, txn.currency)
+        if txn.action is Action.PURCHASED:
+            purchased_counts[key] = purchased_counts.get(key, 0) + 1
+        elif txn.acquisition == AMBIGUOUS:
+            ambiguous_sales.setdefault(key, []).append(txn)
+
+    return {key: (sales, purchased_counts[key]) for key, sales in ambiguous_sales.items()}
+
+
 def ambiguous_bounds(transactions: Iterable[Transaction]) -> dict[str, AmbiguousBounds]:
     """Per currency, the range of drop revenue possible among ambiguous sales.
 
@@ -82,21 +108,8 @@ def ambiguous_bounds(transactions: Iterable[Transaction]) -> dict[str, Ambiguous
 
     Requires `classify` to have already been run - reads `.acquisition`.
     """
-    # SMHT-9: bucketed by (item name, currency), same reasoning as
-    # `classify` above - keeps a currency-mixed item name's purchases and
-    # sales from being reconciled against each other as one pool.
-    ambiguous_sales: dict[tuple[str, str], list[Transaction]] = {}
-    purchased_counts: dict[tuple[str, str], int] = {}
-    for txn in transactions:
-        key = (txn.item_name, txn.currency)
-        if txn.action is Action.PURCHASED:
-            purchased_counts[key] = purchased_counts.get(key, 0) + 1
-        elif txn.acquisition == AMBIGUOUS:
-            ambiguous_sales.setdefault(key, []).append(txn)
-
     totals: dict[str, dict[str, Decimal]] = {}
-    for (item_name, currency), sales in ambiguous_sales.items():
-        purchased = purchased_counts[(item_name, currency)]
+    for (_item_name, currency), (sales, purchased) in _ambiguous_groups(transactions).items():
         prices = sorted((sale.price for sale in sales), reverse=True)
         drop_count = len(prices) - purchased
 
@@ -112,3 +125,64 @@ def ambiguous_bounds(transactions: Iterable[Transaction]) -> dict[str, Ambiguous
         )
         for currency, values in totals.items()
     }
+
+
+def ambiguous_best_guess(transactions: Iterable[Transaction]) -> dict[str, Decimal]:
+    """Per currency, a single FIFO-convention best guess at ambiguous drop revenue (SMHT-10).
+
+    A documented convention, not a recovered fact - the same honesty
+    standard `pairing.py`'s FIFO win-rate pairing already applies to a
+    different question (see that module's docstring): for each ambiguous
+    item, the oldest purchases are paired to the oldest sales (FIFO, by
+    `order_index` - 0 is most recent, so a *larger* `order_index` is
+    older); the `sold - purchased` most-recent, unpaired sales are the
+    guessed drops. Deliberately independent of `ambiguous_bounds`'
+    min/max above, which instead sorts by *price* to find the extremes
+    consistent with the data - this sorts by *time* to produce one
+    specific, plausible guess instead of a range.
+
+    Requires `classify` to have already been run - reads `.acquisition`.
+    """
+    totals: dict[str, Decimal] = {}
+    for (_item_name, currency), (sales, purchased) in _ambiguous_groups(transactions).items():
+        oldest_first = sorted(sales, key=lambda t: t.order_index, reverse=True)
+        guessed_drops = oldest_first[purchased:]
+        totals[currency] = totals.get(currency, Decimal("0")) + sum(
+            (sale.price for sale in guessed_drops), Decimal("0")
+        )
+    return totals
+
+
+def ambiguous_contributions(transactions: Iterable[Transaction]) -> dict[int, tuple[Decimal, Decimal]]:
+    """`order_index` -> (max contribution, best-guess contribution), per ambiguous sale.
+
+    The per-transaction breakdown behind `ambiguous_bounds`' max bucket and
+    `ambiguous_best_guess`'s FIFO bucket above, keyed by each transaction's
+    own `order_index` (globally unique - Steam's own row position in the
+    export) instead of aggregated to one currency total. Lets a caller
+    building a running total over time (`stats.cumulative_series`) look up
+    each transaction's own contribution as it's encountered chronologically,
+    without re-deriving whole-history bucket membership itself - bucket
+    membership depends on a sale's price/order relative to *every* other
+    sale of that item, past or future, so it can't be computed
+    incrementally during the chronological walk alone. No `min` variant -
+    nothing downstream needs a running min line yet.
+
+    Requires `classify` to have already been run - reads `.acquisition`.
+    """
+    contributions: dict[int, tuple[Decimal, Decimal]] = {}
+    for (_item_name, _currency), (sales, purchased) in _ambiguous_groups(transactions).items():
+        drop_count = len(sales) - purchased
+
+        by_price_desc = sorted(sales, key=lambda t: (t.price, t.order_index), reverse=True)
+        max_bucket = {sale.order_index for sale in by_price_desc[:drop_count]}
+
+        oldest_first = sorted(sales, key=lambda t: t.order_index, reverse=True)
+        best_guess_bucket = {sale.order_index for sale in oldest_first[purchased:]}
+
+        for sale in sales:
+            contributions[sale.order_index] = (
+                sale.price if sale.order_index in max_bucket else Decimal("0"),
+                sale.price if sale.order_index in best_guess_bucket else Decimal("0"),
+            )
+    return contributions

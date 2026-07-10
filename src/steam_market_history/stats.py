@@ -52,6 +52,16 @@ class SeriesPoint:
     acted_on: str
     item_name: str
     cumulative_net_profit: Decimal
+    # SMHT-8/SMHT-10: three running drop-revenue lines for the same x-axis
+    # as cumulative_net_profit - the floor (confirmed, exact), and two
+    # ways of resolving the ambiguous bucket to a single running ceiling:
+    # a real bound (confirmed + the price-sorted max) and a specific FIFO
+    # guess (confirmed + the time-sorted best guess). See
+    # `acquisition.ambiguous_bounds`/`ambiguous_best_guess` for what each
+    # bucket means and why they're different conventions.
+    cumulative_confirmed_drop_revenue: Decimal
+    cumulative_ambiguous_ceiling: Decimal
+    cumulative_best_guess_drop_revenue: Decimal
 
 
 @dataclass
@@ -70,6 +80,7 @@ class AcquisitionSummary:
     ambiguous_count: int = 0
     ambiguous_drop_revenue_min: Decimal = Decimal("0")
     ambiguous_drop_revenue_max: Decimal = Decimal("0")
+    ambiguous_drop_revenue_best_guess: Decimal = Decimal("0")
 
 
 @dataclass
@@ -174,19 +185,56 @@ def cumulative_series(transactions: Iterable[Transaction]) -> dict[str, list[Ser
     caller can answer "what caused this swing" without a separate lookup
     against the raw transaction list, which this tool's `--json` output
     never exposes.
+
+    Each point also carries three running drop-revenue totals (SMHT-8/
+    SMHT-10) - `cumulative_confirmed_drop_revenue` is a simple running sum
+    of confirmed-drop sale prices, genuinely incremental. The other two
+    aren't: whether a given ambiguous sale counts toward the running max
+    or the running best guess depends on that sale's price/order relative
+    to *every* other sale of the same item, including ones that haven't
+    been walked yet in this loop - so `acquisition.ambiguous_contributions`
+    is run as a whole-history pre-pass first, and this loop just looks up
+    each transaction's already-decided contribution as it goes.
+
+    Requires `classify` to have already been run - reads `.acquisition`
+    (via `ambiguous_contributions`).
     """
+    transactions = list(transactions)
+    contributions = acquisition.ambiguous_contributions(transactions)
+
     series: dict[str, list[SeriesPoint]] = {}
     running: dict[str, Decimal] = {}
+    running_confirmed: dict[str, Decimal] = {}
+    running_max: dict[str, Decimal] = {}
+    running_best_guess: dict[str, Decimal] = {}
     for txn in sorted(transactions, key=lambda t: t.order_index, reverse=True):
         delta = txn.price if txn.action is Action.SOLD else -txn.price
         total = running.get(txn.currency, Decimal("0")) + delta
         running[txn.currency] = total
+
+        confirmed_delta = txn.price if txn.acquisition == acquisition.DROP else Decimal("0")
+        confirmed_total = running_confirmed.get(txn.currency, Decimal("0")) + confirmed_delta
+        running_confirmed[txn.currency] = confirmed_total
+
+        max_contribution, best_guess_contribution = contributions.get(
+            txn.order_index, (Decimal("0"), Decimal("0"))
+        )
+        max_total = running_max.get(txn.currency, Decimal("0")) + max_contribution
+        running_max[txn.currency] = max_total
+        best_guess_total = (
+            running_best_guess.get(txn.currency, Decimal("0")) + best_guess_contribution
+        )
+        running_best_guess[txn.currency] = best_guess_total
+
         series.setdefault(txn.currency, []).append(
             SeriesPoint(
                 order_index=txn.order_index,
                 acted_on=txn.acted_on,
                 item_name=txn.item_name,
                 cumulative_net_profit=total,
+                cumulative_confirmed_drop_revenue=confirmed_total,
+                cumulative_ambiguous_ceiling=confirmed_total + max_total,
+                cumulative_best_guess_drop_revenue=confirmed_total + best_guess_total,
             )
         )
     return series
@@ -220,6 +268,10 @@ def summarize_acquisition(transactions: Iterable[Transaction]) -> dict[str, Acqu
     consistent with the data for sales that can't be individually resolved -
     see `acquisition.ambiguous_bounds` and the "Confirmed vs Ambiguous Item
     Acquisition" design doc for why this is a range, not a single guess.
+    `ambiguous_drop_revenue_best_guess` (SMHT-10) resolves that same bucket
+    to one specific FIFO-convention number instead - see
+    `acquisition.ambiguous_best_guess` for why it's a documented convention,
+    not a third bound.
     """
     transactions = list(transactions)
     summaries: dict[str, AcquisitionSummary] = {}
@@ -241,6 +293,10 @@ def summarize_acquisition(transactions: Iterable[Transaction]) -> dict[str, Acqu
         bucket = summaries.setdefault(currency, AcquisitionSummary(currency=currency))
         bucket.ambiguous_drop_revenue_min = bounds.drop_revenue_min
         bucket.ambiguous_drop_revenue_max = bounds.drop_revenue_max
+
+    for currency, best_guess in acquisition.ambiguous_best_guess(transactions).items():
+        bucket = summaries.setdefault(currency, AcquisitionSummary(currency=currency))
+        bucket.ambiguous_drop_revenue_best_guess = best_guess
 
     return summaries
 
