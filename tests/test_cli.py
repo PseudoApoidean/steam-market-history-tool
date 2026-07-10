@@ -41,6 +41,12 @@ def test_json_output_series_is_ordered_oldest_first(capsys: pytest.CaptureFixtur
     order_indices = [point["order_index"] for point in points]
     assert order_indices == sorted(order_indices, reverse=True)
     assert all("acted_on" in point for point in points)
+    # Oldest-first: "Rat-a-tat-tat Thompson" (order_index 1) before
+    # "Kilowatt Case" (order_index 0).
+    assert [point["item_name"] for point in points] == [
+        "Rat-a-tat-tat Thompson",
+        "Kilowatt Case",
+    ]
 
 
 def test_json_output_respects_filter(capsys: pytest.CaptureFixture[str]) -> None:

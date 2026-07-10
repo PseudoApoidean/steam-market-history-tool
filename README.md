@@ -110,10 +110,10 @@ Each currency bucket looks like:
 
 Amounts are decimal strings (not floats), to avoid floating-point rounding on money.
 
-`series` is a running net-profit total per currency, ordered oldest-transaction-first (using `order_index`, since there's no year to sort by — see design principles above):
+`series` is a running net-profit total per currency, ordered oldest-transaction-first (using `order_index`, since there's no year to sort by — see design principles above). Each point's `item_name` is the transaction that produced it - the item whose sale/purchase pushed the running total to that value, so a caller can show "what caused this swing" without a separate lookup (this tool's `--json` output never exposes the raw transaction list):
 
 ```json
-{"£": [{"order_index": 4, "acted_on": "19 Jun", "cumulative_net_profit": "0.17"}, {"order_index": 0, "acted_on": "20 Jun", "cumulative_net_profit": "1.72"}]}
+{"£": [{"order_index": 4, "acted_on": "19 Jun", "item_name": "Kilowatt Case", "cumulative_net_profit": "0.17"}, {"order_index": 0, "acted_on": "20 Jun", "item_name": "Operation Bravo Case", "cumulative_net_profit": "1.72"}]}
 ```
 
 `acquisition` is per currency, giving a confirmed drop-revenue floor plus an honest range for what can't be individually resolved — see "Drop detection" above:
