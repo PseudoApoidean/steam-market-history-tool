@@ -18,6 +18,7 @@ def _txn(
     item_name: str = "item",
     action: Action = Action.SOLD,
     acquisition: str = "purchased",
+    category: str | None = None,
 ) -> Transaction:
     return Transaction(
         order_index=order_index,
@@ -29,6 +30,7 @@ def _txn(
         acted_on="1 Jan",
         listed_on="1 Jan",
         acquisition=acquisition,
+        category=category,
     )
 
 
@@ -81,6 +83,19 @@ def test_or_list_may_include_a_multi_word_pattern() -> None:
     assert match_query(_txn(0, "CSGO"), query)
     assert match_query(_txn(0, "Counter-Strike 2"), query)
     assert not match_query(_txn(0, "Rust"), query)
+
+
+def test_category_clause_matches_field() -> None:
+    query = parse_query("category:Trading Card")
+
+    assert match_query(_txn(0, "Steam", category="Trading Card"), query)
+    assert not match_query(_txn(0, "Steam", category="Emoticon"), query)
+
+
+def test_category_clause_on_a_transaction_with_no_category_does_not_raise() -> None:
+    query = parse_query("category:Trading Card")
+
+    assert not match_query(_txn(0, "Counter-Strike 2", category=None), query)
 
 
 def test_counter_strike_crate_filter() -> None:

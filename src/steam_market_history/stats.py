@@ -27,11 +27,22 @@ class CurrencyTotals:
 class GameSummary:
     game_name: str
     totals_by_currency: dict[str, CurrencyTotals] = field(default_factory=dict)
+    # First non-None appid seen for this game_name - should be consistent
+    # across every transaction under one game_name by construction (see
+    # parser.py's _STEAM_COMMUNITY_APPID correction), so "first" and "only"
+    # are expected to coincide in practice.
+    appid: str | None = None
 
 
 @dataclass
 class ItemSummary:
     item_name: str
+    totals_by_currency: dict[str, CurrencyTotals] = field(default_factory=dict)
+
+
+@dataclass
+class CategorySummary:
+    category: str
     totals_by_currency: dict[str, CurrencyTotals] = field(default_factory=dict)
 
 
@@ -87,11 +98,41 @@ def summarize_by_game(transactions: Iterable[Transaction]) -> dict[str, GameSumm
     by_game: dict[str, GameSummary] = {}
     for txn in transactions:
         game = by_game.setdefault(txn.game_name, GameSummary(game_name=txn.game_name))
+        if game.appid is None and txn.appid is not None:
+            game.appid = txn.appid
         bucket = game.totals_by_currency.setdefault(
             txn.currency, CurrencyTotals(currency=txn.currency)
         )
         _apply(bucket, txn)
     return by_game
+
+
+def summarize_by_category(transactions: Iterable[Transaction]) -> dict[str, dict[str, CategorySummary]]:
+    """Per-game, per-category profit/loss, each broken down by currency.
+
+    Keyed by `(game_name, category)` rather than `category` alone -
+    `category` isn't exclusive to any one `game_name` (the `753`/"Steam"
+    correction only affects *which* `game_name` an item's category-carrying
+    `type` value ends up filed under; a real game like "Counter-Strike 2"
+    can have its own meaningful categories too, e.g. containers vs. skins).
+    Nesting under `game_name` keeps every category total scoped to the game
+    it actually belongs to, rather than mixing categories across unrelated
+    games under one flat bucket. Transactions with no `category` (no
+    resolvable `hovers`/`assets` match - see `parser.py`) are excluded
+    entirely, same as they're absent from `by_game`'s totals for any field
+    that depends on that linkage.
+    """
+    by_game_category: dict[str, dict[str, CategorySummary]] = {}
+    for txn in transactions:
+        if txn.category is None:
+            continue
+        categories = by_game_category.setdefault(txn.game_name, {})
+        summary = categories.setdefault(txn.category, CategorySummary(category=txn.category))
+        bucket = summary.totals_by_currency.setdefault(
+            txn.currency, CurrencyTotals(currency=txn.currency)
+        )
+        _apply(bucket, txn)
+    return by_game_category
 
 
 def summarize_by_item(transactions: Iterable[Transaction]) -> dict[str, ItemSummary]:

@@ -22,7 +22,9 @@
 
 Steam's own data conflates "game" and "item type" for anything that isn't a core in-game economy item: every trading card, emoticon, profile background, and booster pack — regardless of which game it's themed after, including a game's own cards — is filed under one generic Steam app (id `753`), the same way Steam's own inventory UI buckets them under a "Steam" tab rather than the tie-in game. This tool corrects `game_name` accordingly: items under that app report `"Steam"` as their game, not a conflated string like `"Don't Starve Together Trading Card"`. Real economy items (a CS2 skin, a Rust weapon skin) keep their own game's name, unaffected.
 
-A `category` field is also captured internally per transaction (from the same `assets` data, e.g. `"Base Grade Container"`, `"Trading Card"`) but isn't yet exposed via `--filter` or `--json` — it's not a finished feature yet, just captured now since the correction above already requires looking it up.
+A `category` field is also captured per transaction (from the same `assets` data, e.g. `"Base Grade Container"`, `"Trading Card"`) and exposed via `--filter`'s `category:` clause and `--json`'s `by_category` key - see below. Not every row resolves one (see "Not every export..." above); a `category`-less transaction just doesn't appear in `by_category` or match any `category:` clause.
+
+Each transaction's real Steam `appid` is also captured (distinct from the display `game_name` - e.g. every community item shares the generic `753`, but a real economy item keeps its own game's appid) and exposed per game via `--json`'s `game_appids` key, e.g. for icon lookups.
 
 ## Drop detection
 
@@ -62,7 +64,7 @@ steam-market-history path/to/history.json --list-games
 - `pattern1||pattern2` within one clause's value OR together.
 - Patterns are case-insensitive shell globs (`*`, `?`).
 - A leading `!` on a clause negates it.
-- Fields: `game` (matches the game name Steam shows - see "Game name and category" above), `name` (matches the item name), and `acquisition` (matches `drop`/`ambiguous`/`purchased` - see "Drop detection" above).
+- Fields: `game` (matches the game name Steam shows - see "Game name and category" above), `name` (matches the item name), `acquisition` (matches `drop`/`ambiguous`/`purchased` - see "Drop detection" above), and `category` (matches Steam's own item-type string, e.g. `"Trading Card"` - a transaction with no resolvable category never matches).
 
 ```sh
 # Lifetime profit from selling CS2/CSGO crates specifically
@@ -76,6 +78,9 @@ steam-market-history path/to/history.json --filter "game:CS2 name:*Case" --filte
 
 # Only confirmed Steam-generated drops
 steam-market-history path/to/history.json --filter "acquisition:drop"
+
+# Only trading cards
+steam-market-history path/to/history.json --filter "category:Trading Card"
 ```
 
 ### Machine-readable output (`--json`)
@@ -90,11 +95,23 @@ steam-market-history path/to/history.json --list-games --json
 
 Always a single JSON object on stdout:
 
-- Success: `{"ok": true, "totals": {...}, "by_game": {...}, "by_item": {...}, "series": {...}, "acquisition": {...}, "win_rate": {...}, "unrealized": {...}, "unrealized_missing_prices": [...]}` (or `{"ok": true, "games": [...]}` with `--list-games`). `--by-game` has no effect in JSON mode — all of these are always included alongside `totals`.
+- Success: `{"ok": true, "totals": {...}, "by_game": {...}, "by_item": {...}, "by_category": {...}, "game_appids": {...}, "series": {...}, "acquisition": {...}, "win_rate": {...}, "unrealized": {...}, "unrealized_missing_prices": [...]}` (or `{"ok": true, "games": [...]}` with `--list-games`). `--by-game` has no effect in JSON mode — all of these are always included alongside `totals`.
 - Failure (bad `--filter` query, unreadable/malformed history or price file): `{"ok": false, "error": "message"}`.
-- No transactions matching the filter is *not* a failure: `{"ok": true, "totals": {}, "by_game": {}, "by_item": {}, "series": {}, "acquisition": {}, "win_rate": {}, "unrealized": {}, "unrealized_missing_prices": []}` (exit code is still 1, same as text mode, so shell scripts checking only the exit code keep working — but stdout is always valid JSON regardless of exit code).
+- No transactions matching the filter is *not* a failure: `{"ok": true, "totals": {}, "by_game": {}, "by_item": {}, "by_category": {}, "game_appids": {}, "series": {}, "acquisition": {}, "win_rate": {}, "unrealized": {}, "unrealized_missing_prices": []}` (exit code is still 1, same as text mode, so shell scripts checking only the exit code keep working — but stdout is always valid JSON regardless of exit code).
 
 `by_item` is the same shape as `by_game` (a currency bucket per key, see below) but keyed by item name instead of game/market - unranked, sort it by whichever currency/field matters for a most/least-profitable view. A drop item's full sale price counts as pure profit here, same as everywhere else - filter to `acquisition:purchased` first (see "Drop detection" above) for a "real trades only" ranking.
+
+`by_category` is keyed by game name, then by category, then the same per-currency shape again - `category` isn't exclusive to any one game (a real game like Counter-Strike 2 can have its own categories, e.g. containers vs. skins, distinct from the community-item "Steam" bucket's Trading Card/Emoticon/etc. split), so category totals stay nested under the game they actually belong to rather than mixed together in one flat bucket. A game with no categorized transactions is simply absent from `by_category`, not present with an empty object.
+
+```json
+{"Steam": {"Trading Card": {"£": {"sold_total": "2.50", "sold_count": 1, "purchased_total": "0", "purchased_count": 0, "net_profit": "2.50"}}}}
+```
+
+`game_appids` is a flat mapping of game name to that game's real Steam appid (or `null` if never resolved for any of that game's transactions) - a stable identifier distinct from the display game name (which is corrected for the community-item case - see "Game name and category" above), useful for e.g. icon lookups. Icon resolution itself (mapping an appid to a displayed icon) is intentionally left to callers - this tool only ever hands back the id.
+
+```json
+{"Steam": "753", "Counter-Strike 2": "730", "Rust": null}
+```
 
 `win_rate` is per currency, from FIFO-pairing each item name's purchases to its sales by `order_index` (oldest purchase with oldest sale - a documented convention, not a fact recovered from the data, same reasoning as "Drop detection" above but for a different question: not "was this a drop," but "was this specific paired trade profitable"). Excess sales (drops) and excess purchases (still held) aren't part of any pair and don't count toward this:
 
