@@ -40,7 +40,7 @@ def test_compute_unrealized_single_held_purchase_has_no_bound_spread() -> None:
 
     items, missing = compute_unrealized(txns, {"Rat-a-tat-tat Thompson": Decimal("3.00")})
 
-    item = items["Rat-a-tat-tat Thompson"]
+    item = items[("Rat-a-tat-tat Thompson", "€")]
     assert item.currency == "€"
     assert item.held_count == 1
     assert item.current_value == Decimal("3.00")
@@ -61,7 +61,7 @@ def test_compute_unrealized_bounds_held_units_by_cheapest_or_priciest_purchase()
 
     items, missing = compute_unrealized(txns, {"Skin": Decimal("10.00")})
 
-    item = items["Skin"]
+    item = items[("Skin", "£")]
     assert item.held_count == 2
     assert item.current_value == Decimal("20.00")
     assert item.gain_max == Decimal("20.00") - Decimal("3.00")
@@ -87,6 +87,42 @@ def test_compute_unrealized_keeps_currencies_and_items_separate() -> None:
         txns, {"Skin A": Decimal("2.00"), "Skin B": Decimal("3.00")}
     )
 
-    assert items["Skin A"].currency == "£"
-    assert items["Skin B"].currency == "€"
+    assert items[("Skin A", "£")].currency == "£"
+    assert items[("Skin B", "€")].currency == "€"
     assert missing == []
+
+
+def test_compute_unrealized_does_not_mix_the_same_item_name_across_currencies() -> None:
+    # SMHT-9: the same item name held under two different currencies used
+    # to be reconciled as one fungible pool (a single dict entry keyed by
+    # item_name alone), silently mixing amounts across currencies. Held
+    # under £ (1 purchased, 0 sold -> held 1) and separately under € (2
+    # purchased, 1 sold -> held 1) - each currency's own held count and
+    # cost basis must stay independent, not merged into one entry.
+    txns = [
+        _txn(0, Action.PURCHASED, "1.00", "Skin", currency="£"),
+        _txn(1, Action.PURCHASED, "2.00", "Skin", currency="€"),
+        _txn(2, Action.PURCHASED, "4.00", "Skin", currency="€"),
+        _txn(3, Action.SOLD, "5.00", "Skin", currency="€"),
+    ]
+
+    items, missing = compute_unrealized(txns, {"Skin": Decimal("10.00")})
+
+    assert set(items) == {("Skin", "£"), ("Skin", "€")}
+    assert items[("Skin", "£")].held_count == 1
+    assert items[("Skin", "£")].current_value == Decimal("10.00")
+    assert items[("Skin", "€")].held_count == 1
+    assert items[("Skin", "€")].current_value == Decimal("10.00")
+    assert missing == []
+
+
+def test_compute_unrealized_deduplicates_a_missing_price_seen_in_two_currencies() -> None:
+    txns = [
+        _txn(0, Action.PURCHASED, "1.00", "Skin", currency="£"),
+        _txn(1, Action.PURCHASED, "2.00", "Skin", currency="€"),
+    ]
+
+    items, missing = compute_unrealized(txns, {})
+
+    assert items == {}
+    assert missing == ["Skin"]
